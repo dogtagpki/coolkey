@@ -425,7 +425,7 @@ PACKAGE_VERSION='"1.1.0"'
 PACKAGE_STRING='coolkey "1.1.0"'
 PACKAGE_BUGREPORT=''
 
-ac_unique_file="pkcs11/smartcard/coolkey.cpp"
+ac_unique_file="src/coolkey/coolkey.cpp"
 # Factoring default headers for most tests.
 ac_includes_default="\
 #include <stdio.h>
@@ -18937,7 +18937,7 @@ fi
 
 # add our compiled static libraries
 
-LIBCKYAPPLET="\${top_builddir}/clib/libckyapplet.la"
+LIBCKYAPPLET="\${top_builddir}/src/libckyapplet/libckyapplet.la"
 
 PCSC_MSG=no
 pcsc_path=/usr
@@ -20996,7 +20996,7 @@ done
 
 
 
-                              ac_config_files="$ac_config_files Makefile clib/Makefile pkcs11/smartcard/Makefile"
+                              ac_config_files="$ac_config_files Makefile src/libckyapplet/Makefile src/coolkey/Makefile"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -21569,8 +21569,8 @@ do
   case "$ac_config_target" in
   # Handling of arguments.
   "Makefile" ) CONFIG_FILES="$CONFIG_FILES Makefile" ;;
-  "clib/Makefile" ) CONFIG_FILES="$CONFIG_FILES clib/Makefile" ;;
-  "pkcs11/smartcard/Makefile" ) CONFIG_FILES="$CONFIG_FILES pkcs11/smartcard/Makefile" ;;
+  "src/libckyapplet/Makefile" ) CONFIG_FILES="$CONFIG_FILES src/libckyapplet/Makefile" ;;
+  "src/coolkey/Makefile" ) CONFIG_FILES="$CONFIG_FILES src/coolkey/Makefile" ;;
   "depfiles" ) CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
   "config.h" ) CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
   *) { { echo "$as_me:$LINENO: error: invalid argument: $ac_config_target" >&5

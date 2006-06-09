@@ -49,7 +49,7 @@ libcoolkeypk11_la_SOURCES = \
 	$(NULL)
 
 libcoolkeypk11_la_LDFLAGS = -module -avoid-version -export-symbols coolkeypk11.sym
-libcoolkeypk11_la_CPPFLAGS = $(CPPFLAGS) -DNSS_HIDE_NONSTANDARD_OBJECTS=1 -I$(top_srcdir)/clib $(PCSC_CFLAGS)
+libcoolkeypk11_la_CPPFLAGS = $(CPPFLAGS) -DNSS_HIDE_NONSTANDARD_OBJECTS=1 -I$(top_srcdir)/src/libckyapplet $(PCSC_CFLAGS)
 libcoolkeypk11_la_DEPENDENCIES = coolkeypk11.sym
 libcoolkeypk11_la_LIBADD = @LIBCKYAPPLET@ 
 
