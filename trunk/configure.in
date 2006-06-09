@@ -24,7 +24,7 @@ AC_PREREQ(2.52)
 
 # Process this file with autoconf to produce a configure script.
 AC_INIT(coolkey,"1.1.0")
-AC_CONFIG_SRCDIR([pkcs11/smartcard/coolkey.cpp])
+AC_CONFIG_SRCDIR([src/coolkey/coolkey.cpp])
 AC_CANONICAL_TARGET([])
 AM_INIT_AUTOMAKE(coolkey, "1.1.0")
 AC_CONFIG_HEADERS([config.h])
@@ -54,7 +54,7 @@ AC_CHECK_LIB(dl, dlopen, , AC_MSG_ERROR(could not locate dynamic library service
 
 # add our compiled static libraries
 AC_SUBST(LIBCKYAPPLET)
-LIBCKYAPPLET="\${top_builddir}/clib/libckyapplet.la"
+LIBCKYAPPLET="\${top_builddir}/src/libckyapplet/libckyapplet.la"
 
 PCSC_MSG=no
 pcsc_path=/usr
@@ -190,7 +190,7 @@ AC_CHECK_FUNCS([memset strdup strerror])
 
 AC_CONFIG_FILES([ 
 Makefile
-clib/Makefile
-pkcs11/smartcard/Makefile
+src/libckyapplet/Makefile
+src/coolkey/Makefile
 ])
 AC_OUTPUT

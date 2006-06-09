@@ -19,7 +19,7 @@
 
 # Process this file with automake to create Makefile.in.
 
-SUBDIRS = clib pkcs11/smartcard
+SUBDIRS = src/libckyapplet src/coolkey
 
 ACLOCAL_AMFLAGS = -I m4
 

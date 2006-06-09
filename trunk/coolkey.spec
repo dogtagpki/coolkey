@@ -27,10 +27,9 @@ Source: coolkey-%{version}.tar.gz
 Group: System Environment/Libraries
 BuildRoot:  %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: pcsc-lite-devel
-BuildRequires: zlib
+BuildRequires: zlib-devel
 Requires: pcsc-lite 
 Requires: ifd-egate
-Requires: zlib
 Provides: CoolKey Openkey
 Obsoletes: CoolKey Openkey
 
@@ -40,7 +39,6 @@ Linux Driver support for the CoolKey and CAC products.
 %package devel
 Summary: CoolKey Applet libraries
 Group: System Environment/Libraries
-Provides: coolkey-devel
 
 %description devel
 Linux Driver support to access the CoolKey applet.
@@ -50,7 +48,7 @@ Linux Driver support to access the CoolKey applet.
 
 %build
 %configure --disable-dependency-tracking 
-make %("_smp_mflags)
+make %(?_smp_mflags)
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -71,7 +69,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %files devel
 %{_libdir}/libckyapplet.a
-%{_includedir}
+%{_includedir}/*.h
 
 
 %changelog
