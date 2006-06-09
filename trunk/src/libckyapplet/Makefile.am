@@ -1,0 +1,53 @@
+# ***** BEGIN COPYRIGHT BLOCK *****
+# Copyright (C) 2005 Red Hat, Inc.
+# All rights reserved.
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation version
+# 2.1 of the License.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+# ***** END COPYRIGHT BLOCK *****
+
+# Process this file with automake to create Makefile.in
+
+SUBDIRS = 
+
+AM_CFLAGS =
+
+# bleh what do I add just to get static but pic libraries?
+noinst_LTLIBRARIES = libckyapplet.la
+
+libckyapplet_la_SOURCES = \
+	cky_applet.c \
+	cky_base.c \
+	cky_card.c \
+	cky_factory.c \
+	dynlink.c 
+
+quote=\"
+
+libckyapplet_la_LDFLAGS = -avoid-version
+libckyapplet_la_CFLAGS = $(CFLAGS) -DSCARD_LIB_NAME=$(quote)$(SCARD_LIB_NAME)$(quote) $(PCSC_CFLAGS)
+
+nobase_include_HEADERS = \
+	cky_base.h \
+	cky_card.h \
+	cky_factory.h \
+	cky_list.h \
+	cky_applet.h 
+
+noinst_HEADERS = \
+	cky_basei.h \
+	dynlink.h 
+
+#pcdir = $(libdir)/pkgconfig
+#pc_DATA = libckyapplet.pc
