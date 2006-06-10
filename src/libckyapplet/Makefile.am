@@ -24,7 +24,7 @@ SUBDIRS =
 AM_CFLAGS =
 
 # bleh what do I add just to get static but pic libraries?
-noinst_LTLIBRARIES = libckyapplet.la
+lib_LTLIBRARIES = libckyapplet.la
 
 libckyapplet_la_SOURCES = \
 	cky_applet.c \
@@ -35,7 +35,7 @@ libckyapplet_la_SOURCES = \
 
 quote=\"
 
-libckyapplet_la_LDFLAGS = -avoid-version
+libckyapplet_la_LDFLAGS = -version-info 1:0:0
 libckyapplet_la_CFLAGS = $(CFLAGS) -DSCARD_LIB_NAME=$(quote)$(SCARD_LIB_NAME)$(quote) $(PCSC_CFLAGS)
 
 nobase_include_HEADERS = \
@@ -49,5 +49,5 @@ noinst_HEADERS = \
 	cky_basei.h \
 	dynlink.h 
 
-#pcdir = $(libdir)/pkgconfig
-#pc_DATA = libckyapplet.pc
+pcdir = $(libdir)/pkgconfig
+pc_DATA = libckyapplet.pc
