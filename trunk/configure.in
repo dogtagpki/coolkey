@@ -191,6 +191,7 @@ AC_CHECK_FUNCS([memset strdup strerror])
 AC_CONFIG_FILES([ 
 Makefile
 src/libckyapplet/Makefile
+src/libckyapplet/libckyapplet.pc
 src/coolkey/Makefile
 ])
 AC_OUTPUT

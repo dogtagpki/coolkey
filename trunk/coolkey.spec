@@ -48,7 +48,7 @@ Linux Driver support to access the CoolKey applet.
 
 %build
 %configure --disable-dependency-tracking 
-make %(?_smp_mflags)
+make %{?_smp_mflags}
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -56,7 +56,8 @@ make install DESTDIR=$RPM_BUILD_ROOT
 ln -s pkcs11/libcoolkeypk11.so $RPM_BUILD_ROOT/%{_libdir}
 rm -f $RPM_BUILD_ROOT/%{_libdir}/pkcs11/libcoolkeypk11.la
 rm -f $RPM_BUILD_ROOT/%{_libdir}/pkcs11/libcoolkeypk11.a
-install -m 755 clib/.libs/libckyapplet.a $RPM_BUILD_ROOT/%{_libdir}
+rm -f $RPM_BUILD_ROOT/%{_libdir}/libckyapplet.a
+rm -f $RPM_BUILD_ROOT/%{_libdir}/libckyapplet.la
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -66,9 +67,12 @@ rm -rf $RPM_BUILD_ROOT
 %doc ChangeLog LICENSE 
 %{_libdir}/libcoolkeypk11.so
 %{_libdir}/pkcs11/libcoolkeypk11.so
+%{_libdir}/libckyapplet.so.1
+%{_libdir}/libckyapplet.so.1.0.0
 
 %files devel
-%{_libdir}/libckyapplet.a
+%{_libdir}/libckyapplet.so
+%{_libdir}/pkgconfig/libckyapplet.pc
 %{_includedir}/*.h
 
 
