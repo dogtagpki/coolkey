@@ -22,7 +22,7 @@ Version: 1.0.0
 Release: 1
 Summary: CoolKey PKCS #11 module
 License: LGPL
-URL: TBD
+URL: http://directory.fedora.redhat.com/wiki/CoolKey
 Source: coolkey-%{version}.tar.gz
 Group: System Environment/Libraries
 BuildRoot:  %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -61,6 +61,10 @@ rm -f $RPM_BUILD_ROOT/%{_libdir}/libckyapplet.la
 
 %clean
 rm -rf $RPM_BUILD_ROOT
+
+%post -p /sbin/ldconfig
+
+%postun -p /sbin/ldconfig
 
 %files
 %defattr(-,root,root,-)
