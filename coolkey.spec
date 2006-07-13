@@ -18,7 +18,7 @@
 # END COPYRIGHT BLOCK
 
 Name: coolkey
-Version: 1.0.0
+Version: 1.0.1
 Release: 1
 Summary: CoolKey PKCS #11 module
 License: LGPL
@@ -30,8 +30,10 @@ BuildRequires: pcsc-lite-devel
 BuildRequires: zlib-devel
 Requires: pcsc-lite 
 Requires: ifd-egate
+Requires: ccid
 Provides: CoolKey Openkey
 Obsoletes: CoolKey Openkey
+ExcludeArch: s390 s390x   # 390 does not have libusb or smartCards
 
 %description
 Linux Driver support for the CoolKey and CAC products. 
@@ -81,5 +83,11 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Mon Jul 10 2006 Bob Relyea <rrelyea@redhat.com> - 1.0.1-1
+- Don't require pthread library in coolkey
+
+* Mon Jul 10 2006 Bob Relyea <rrelyea@redhat.com> - 1.0.0-2
+- remove s390 from the build
+
 * Mon Jun 5 2006 Bob Relyea <rrelyea@redhat.com> - 1.0.0-1
 - Initial revision for fedora
