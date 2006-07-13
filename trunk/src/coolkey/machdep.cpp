@@ -328,7 +328,7 @@ struct OSLockData {
     pthread_mutex_t mutex;
 };
 
-static pthread_mutexattr_t OSLock_attr;
+static pthread_mutexattr_t OSLock_attr = {0};
 static int OSLock_attr_init = 0;
 
 OSLock::OSLock(bool exceptionAllowed)
@@ -336,6 +336,7 @@ OSLock::OSLock(bool exceptionAllowed)
     int rc;
 
     lockData = NULL;
+#ifdef MAC
     if (!OSLock_attr_init) {
 	rc = pthread_mutexattr_init(&OSLock_attr);
 	if (rc < 0) {
@@ -347,6 +348,7 @@ OSLock::OSLock(bool exceptionAllowed)
 	}
 	OSLock_attr_init = 1;
     }
+#endif
     lockData = new OSLockData;
     if (lockData) {
 	rc = pthread_mutex_init(&lockData->mutex, &OSLock_attr);
