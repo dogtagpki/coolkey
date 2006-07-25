@@ -605,7 +605,7 @@ Slot::connectToToken()
 	 * ... even removing and reinserting the card does not change the
 	 * applet selection,
 	 * do so reset the card now  so we can get the CUID 
-	 * this will cause other apps to loose login state! */
+	 * NOTE: this will cause other apps to loose login state! */
 	CKYCardConnection_Reset(conn);
         readCUID(); /* get the CUID before we loose the ability to */
 	isVersion1Key = 0;
@@ -1655,6 +1655,8 @@ SlotMemSegment::writeCACCert(const CKYBuffer *data, CKYByte instance)
 	segmentHeader->dataHeaderSize = size;
 	segmentHeader->dataOffset = segmentHeader->dataHeaderOffset + size;
 	segmentHeader->dataSize = 0;
+	segmentHeader->cert2Offset = segmentHeader->dataOffset;
+	segmentHeader->cert2Size = 0;
 	shmData = (CKYByte *) &segmentAddr[segmentHeader->dataHeaderOffset];
 	break;
     case 1:
@@ -1975,7 +1977,24 @@ Slot::loadCACCert(CKYByte instance)
     CKYBuffer_InitEmpty(&cert);
     CKYBuffer_InitEmpty(&rawCert);
     CKYBuffer_InitEmpty(&shmCert);
-    selectCACApplet(instance);
+
+    //
+    // not all CAC cards have all the PKI instances
+    // catch the applet selection errors if they don't
+    //
+    try {
+        selectCACApplet(instance);
+    } catch(PKCS11Exception& e) {
+	// all CAC's must have instance '0', throw the error it
+	// they don't.
+	if (instance == 0) throw e;
+	// If the CAC doesn't have instance '2', and we were updating
+	// the shared memory, set it to valid now.
+	if ((instance == 2) && !shmem.isValid()) {
+	    shmem.setValid();
+	}
+	return;
+    }
 
     log->log("CAC Cert %d: select CAC applet:  %d ms\n",
 						 instance, OSTimeNow() - time);
@@ -2014,6 +2033,10 @@ Slot::loadCACCert(CKYByte instance)
 		needRead = 0;
 	    }
 	}
+	if (!needRead && (shmCertSize == 0)) {	
+	    /* no cert of this type, just return */
+	    return;
+	}
     }
     CKYBuffer_FreeData(&shmCert);
 
@@ -2029,7 +2052,14 @@ Slot::loadCACCert(CKYByte instance)
 						&nextSize, &apduRC);
 	
 	    if (status != CKYSUCCESS) {
-		handleConnectionError();
+		/* CAC only requires the Certificate in pki '0' */
+		/* if pki '1' or '2' are empty, treat it as a non-fatal error*/
+		if (instance == 2) {
+		    /* we've attempted to read all the certs, shared memory
+		     * is now valid */
+		    shmem.setValid();
+		}
+	   
 	    }
 	}
 
