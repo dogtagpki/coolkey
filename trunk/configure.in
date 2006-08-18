@@ -41,6 +41,47 @@ else
   AC_DEFINE(DEBUG, 1, [Define to 1 if you want to include debugging code.])
 fi
 
+
+#
+# ./config does a poor job of dealing with native OS stuff other than
+# unix, detect Windows and mac and do something a little more OS
+# friendly
+WINDOWS=0
+MAC=0
+UNIX=0
+AC_MSG_CHECKING([platform type: ])
+case "$host" in
+*-*-win*|*-*-cygwin*)
+  	AC_MSG_RESULT([Windows])
+	WINDOWS=1
+	ZLIB_CFLAGS=-Ic:/zlib
+	ZLIB_LIB=c:/zlib/zlib.dll
+	#OS_FLAGS=`echo $INCLUDE | tr '[[:upper:]]' '[[:lower:]]' | sed -e 's;\\\\;/;g' -e 's;.:;/cygdrive/&/;g' -e 's;:;;g' -e 's;//;/;g' -e 's/;/\" -I\"/g' -e 's;^;-I\";' -e 's;$;\";'`
+	CPPFLAGS="$CPPFLAGS $OS_FLAGS -DWIN32"
+	LDFLAGS="$LDFLAGS"
+	AC_MSG_WARN([changing CPPFLAGS = $CPPFLAGS ] );
+	SCARD_LIB_NAME="winscard.dll"
+	# override config defaults for windows
+	CC=cl
+	CXX=cl 
+	CXXFLAGS="$CXXFLAGS /EHsc"
+	;;
+*-*-darwin*)
+  	AC_MSG_RESULT([MAC])
+	MAC=1 
+	SCARD_LIB_NAME="PCSC.Framework/PCSC"
+	PCSC_MSG=yes
+	PCSC_CFLAGS=""
+	PCSC_LIBS="-Wl,-framework,PCSC"
+	;;
+*)
+  	AC_MSG_RESULT([UNIX/LINUX])
+	UNIX=1
+        # should look it up on the local system
+	SCARD_LIB_NAME="libpcsclite.so.1"
+	;;
+esac
+
 # Checks for programs.
 AC_PROG_CC
 AC_PROG_CXX
@@ -49,126 +90,36 @@ AC_PROG_INSTALL
 AC_PROG_LN_S
 
 # Checks for libraries.
+if test $WINDOWS -ne 1; then
 AC_CHECK_LIB(z, uncompress, , AC_MSG_ERROR(could not locate libz compression library))
 AC_CHECK_LIB(dl, dlopen, , AC_MSG_ERROR(could not locate dynamic library services library))
+fi
 
 # add our compiled static libraries
 AC_SUBST(LIBCKYAPPLET)
 LIBCKYAPPLET="\${top_builddir}/src/libckyapplet/libckyapplet.la"
 
-PCSC_MSG=no
-pcsc_path=/usr
+AC_ARG_WITH(pcsclite,
+  [  --with-pcsclite         Use pcsc-lite (default=yes)])
+if test "$with_pcsclite" = "no" -o "$with_pcsclite" = "false"
+then
+  with_pcsclite=no
+else
+      PKG_CHECK_MODULES(PCSC, libpcsclite, [ with_pcsclite=yes ],
+        [ if test -f /usr/local/lib/pkgconfig/libpcsclite.pc ; then
+                AC_MSG_ERROR([use PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure])
+          else
+                AC_MSG_WARN([pcsc-lite not found])
+                with_pcsclite=no
+        fi
+      ])
+fi
+AC_SUBST(ZLIB_CFLAGS)
+AC_SUBST(ZLIB_LIBS)
 AC_SUBST(PCSC_CFLAGS)
 AC_SUBST(PCSC_LIBS)
 AC_SUBST(SCARD_LIB_NAME)
-
-case "$host" in
-*-*-win*)
-	SCARD_LIB_NAME="winscard.dll"
-	;;
-*-*-darwin*)
-	SCARD_LIB_NAME="PCSC.Framework/PCSC"
-	PCSC_MSG=yes
-	PCSC_CFLAGS=""
-	PCSC_LIBS="-Wl,-framework,PCSC"
-	;;
-*)
-        # should look it up on the local system
-	SCARD_LIB_NAME="libpcsclite.so.1"
-	;;
-esac
-
-saved_LIBS="$LIBS"
-saved_CFLAGS="$CFLAGS"
-saved_LDFLAGS="$LDFLAGS"
-saved_CPPFLAGS="$CPPFLAGS"
-AC_ARG_WITH(pcsclite,
-	[  --with-pcsclite=PATH    use PC/SC Lite in PATH],
-	[pcsc_path=$withval])
-if test "x$pcsc_path" = "xno"; then
-	PCSC_MSG="no"
-fi
-if test "x$pcsc_path" != "xno" -a "x$PCSC_MSG" != "xyes"; then
-	PKG_CHECK_MODULES(PCSC, libpcsclite, [
-		PCSC_MSG="yes"
-		AC_MSG_RESULT($PCSC_MSG)
-		],[
-	AC_MSG_CHECKING(for PC/SC Lite support (old style))
-	for pcscdir in "" /PCSC; do
-		CPPFLAGS="$saved_CPPFLAGS"
-		LDFLAGS="$saved_LDFLAGS"
-		LIBS="-lpcsclite $saved_LIBS"
-		PCSC_CFLAGS=""
-
-		for pcsc_libdir in $pcsc_path/lib$pcscdir \
-			      $pcsc_path$pcscdir/lib \
-			      $pcsc_path$pcscdir; do
-			if test -d $pcsc_libdir; then
-				if test -n "${need_dash_r}"; then
-					LDFLAGS="-R${pcsc_libdir}/ ${LDFLAGS}"
-				fi
-				LDFLAGS="-L${pcsc_libdir} ${LDFLAGS}"
-			fi
-		done
-
-		for pcsc_incdir in $pcsc_path/include$pcscdir \
-			      $pcsc_path$pcscdir/include \
-			      $pcsc_path$pcscdir; do
-		      if test -d $pcsc_incdir; then
-				PCSC_CFLAGS="-I${pcsc_incdir}"
-				break;
-		      fi
-		done
-
-		CPPFLAGS="${PCSC_CFLAGS} ${CPPFLAGS}"
-		AC_TRY_LINK([#include <stdlib.h>
-#include <winscard.h>],[SCardEstablishContext(0, NULL, NULL, NULL);], ac_cv_lib_pcsclite_SCardEstablishContext=yes)
-		if test "x$ac_cv_lib_pcsclite_SCardEstablishContext" = "xyes"; then
-			PCSC_MSG=yes
-			break;
-		fi
-		CPPFLAGS="$saved_CPPFLAGS"
-		LDFLAGS="$saved_LDFLAGS"
-		LIBS="$saved_LIBS"
-		PCSC_CFLAGS=""
-	done
-	AC_MSG_RESULT($PCSC_MSG)
-	if test "x$PCSC_MSG" = "xyes" ; then
-		PCSC_LIBS="-lpcsclite"
-		CPPFLAGS="$saved_CPPFLAGS"
-		LIBS="$saved_LIBS"
-	fi
-	])
-fi
-AM_CONDITIONAL(HAVE_PCSC, test "x$PCSC_MSG" = "xyes")
-if test "x$PCSC_MSG" = "xyes"; then
-	AC_DEFINE(HAVE_PCSC, 1, [Have PC/SC implementation])
-else
-	PCSC_LIBS=""
-	PCSC_CFLAGS=""
-fi
-
-if test "x$PCSC_MSG" = "xyes"; then
-	CPPFLAGS="${PCSC_CFLAGS} $saved_CPPFLAGS"
-	CFLAGS="$PCSC_CFLAGS $saved_CFLAGS"
-	LIBS="$PCSC_LIBS $saved_LIBS"
-	AC_TRY_LINK([
-#include <stdlib.h>
-#ifdef __APPLE__
-#include <PCSC/wintypes.h>
-#include <PCSC/winscard.h>
-#else
-#include <winscard.h>
-#endif
-	], [
-SCardControl(NULL, NULL, 0, NULL, NULL);
-	], [
-		AC_DEFINE(HAVE_PCSC_OLD, 1, [old version of pc/sc-lite])
-	])
-	CPPFLAGS="$saved_CPPFLAGS"
-	CFLAGS="$saved_CFLAGS"
-	LIBS="$saved_LIBS"
-fi
+AM_CONDITIONAL(HAVE_PCSC, test x$with_pcsclite = xyes)
 
 AC_DEFINE(DEBUG, 1, [Define to 1 if you want to include debugging code.])
 # Checks for header files.
