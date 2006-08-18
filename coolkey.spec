@@ -19,7 +19,7 @@
 
 Name: coolkey
 Version: 1.0.1
-Release: 1
+Release: 2
 Summary: CoolKey PKCS #11 module
 License: LGPL
 URL: http://directory.fedora.redhat.com/wiki/CoolKey
@@ -33,7 +33,8 @@ Requires: ifd-egate
 Requires: ccid
 Provides: CoolKey Openkey
 Obsoletes: CoolKey Openkey
-ExcludeArch: s390 s390x   # 390 does not have libusb or smartCards
+# 390 does not have libusb or smartCards
+ExcludeArch: s390 s390x
 
 %description
 Linux Driver support for the CoolKey and CAC products. 
@@ -83,6 +84,9 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Sun Jul 16 2006 Florian La Roche <laroche@redhat.com> - 1.0.1-2
+- fix excludearch line
+
 * Mon Jul 10 2006 Bob Relyea <rrelyea@redhat.com> - 1.0.1-1
 - Don't require pthread library in coolkey
 
