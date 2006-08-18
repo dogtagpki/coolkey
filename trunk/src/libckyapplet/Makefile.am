@@ -35,7 +35,7 @@ libckyapplet_la_SOURCES = \
 
 quote=\"
 
-libckyapplet_la_LDFLAGS = -version-info 1:0:0
+libckyapplet_la_LDFLAGS = -version-info 1:0:0 -no-undefined
 libckyapplet_la_CFLAGS = $(CFLAGS) -DSCARD_LIB_NAME=$(quote)$(SCARD_LIB_NAME)$(quote) $(PCSC_CFLAGS)
 
 nobase_include_HEADERS = \
