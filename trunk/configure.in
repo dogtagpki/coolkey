@@ -55,7 +55,7 @@ case "$host" in
   	AC_MSG_RESULT([Windows])
 	WINDOWS=1
 	ZLIB_CFLAGS=-Ic:/zlib
-	ZLIB_LIB=c:/zlib/zlib.dll
+	ZLIB_LIBS=c:/zlib/zlib.dll
 	#OS_FLAGS=`echo $INCLUDE | tr '[[:upper:]]' '[[:lower:]]' | sed -e 's;\\\\;/;g' -e 's;.:;/cygdrive/&/;g' -e 's;:;;g' -e 's;//;/;g' -e 's/;/\" -I\"/g' -e 's;^;-I\";' -e 's;$;\";'`
 	CPPFLAGS="$CPPFLAGS $OS_FLAGS -DWIN32"
 	LDFLAGS="$LDFLAGS"
