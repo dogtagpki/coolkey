@@ -1,0 +1,55 @@
+Building:
+
+Linux/Unix:
+autoconf
+./configure
+
+If you need to modify the Makefiles, automake 1.9.6 was used. Makefile.am is 
+included in the source.
+
+------------------------------------------------------------------------------
+
+Mac OS X:
+
+------------------------------------------------------------------------------
+
+Windows:
+
+Prereqs -
+Microsoft Visual C++ and Platform SDK.
+Install as normal. Make sure INCLUDE and LIB are set appropriately.
+These are available at (http://msdn.microsoft.com/visualc/)
+
+Cygwin
+Install as normal. You'll need base, the shell, autoconf-2.5x, cvs*...
+This can be downloaded at (http://www.cygwin.com)
+
+ZLib
+Download ZLib source an binaries from here (http://www.zlib.org)
+Unzip into a known directory (like c:/zlib)
+Set ZLIB_INCLUDE to the location of the include files (e.g. c:/zlib/include)
+and ZLIB_LIB to the location of the export libraries (e.g. c:/zlib/lib) 
+
+Once everything is installed, start a cygwin shell.
+1. checkout the coolkey source
+2. Make sure the environment variables INCLUDE, LIB, ZLIB_INCLUDE, and ZLIB_LIB 
+are defined.
+3. Make sure the Visual C++ tools are in your path.
+
+In the root directory type:
+
+autoconf-2.5x
+./configure
+make
+
+
+NOTE: Make install does not work on windows. You'll need to fetch
+src/libckyapplet/.lib/libckyapplet-1.dll
+src/coolkeypk11/.lib/libcookeypk11.dll
+and
+zlib1.dll from your zlibdirectory and install it in your windows system32 
+directory.
+
+
+* This may not be a full list. If you discover additional packages which are 
+needed please let us know.

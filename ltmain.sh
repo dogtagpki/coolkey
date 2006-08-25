@@ -1579,6 +1579,12 @@ EOF
 	continue
 	;;
 
+      *$shrext)
+	# A shared library
+	deplibs="$deplibs $arg"
+	continue
+	;;
+
       *.la)
 	# A libtool-controlled library.
 
@@ -1911,6 +1917,12 @@ EOF
 	  continue
 	  ;;
 	*.la) lib="$deplib" ;;
+	*$shrext)
+	  if test "$pass" = link -a "$shrext" = ".dll"; then
+		deplib=`echo $deplib | sed -e 's;'$shrext'\$;.'$libext';'`
+	  fi
+	  deplibs="$deplib $deplibs"
+	  continue;;
 	*.$libext)
 	  if test "$pass" = conv; then
 	    deplibs="$deplib $deplibs"
