@@ -177,6 +177,7 @@ void OSSleep(int time)
 #define FULL_CLEANUP
 #else
 /* if we can't lock on open, don't use locking for now */
+#undef FULL_CLEANUP
 #define O_EXLOCK 0
 #endif
 
@@ -207,9 +208,11 @@ SHMemData::~SHMemData() {
 #ifdef FULL_CLEANUP
 	flock(fd,LOCK_EX);
 	unsigned long ref = --(*(unsigned long *)addr); 
+#ifdef notdef
 	if (ref == 0) {
 	    unlink(path);
 	}
+#endif
 	flock(fd, LOCK_UN);
 #endif
 	munmap(addr,size+RESERVED_OFFSET);
@@ -228,6 +231,14 @@ SHMem *
 SHMem::initSegment(const char *name, int size, bool &init)
 {
     bool needInit = true;
+    /* big enough to hold a uid_t value in decimal */
+    /* decimal digits = ceiling(log10(uid_t_max)); */
+    /* log10(uid_t_max) = log256(uid_t_max)/log256(10); */
+    /* log256(uid_t_max) = sizeof(uid_t); */
+    /* log10(256) just greater than .41 */
+    /* so decimal_digits = (sizeof(uid_t)*100 +40)/41 */
+#define UID_DIGITS (((sizeof(uid_t)*100)+40)/41)
+    char uid_str[UID_DIGITS+2]; /* 1 for '-', 1 for null */
    
     init = 0;
     SHMemData *shmemData = new SHMemData;
@@ -236,12 +247,13 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	// from getSHMemAddr.
 	return NULL;
     }
-    int ret = mkdir (MEMSEGPATH, 0755);
+    int ret = mkdir (MEMSEGPATH, 0777);
     if ((ret == -1) && (errno != EEXIST)) {
 	delete shmemData;
 	return NULL;
     }
-    shmemData->path = new char [sizeof(MEMSEGPATH)+strlen(name)+2];
+    /* 1 for the '/', one for the '-' and one for the null */
+    shmemData->path = new char [sizeof(MEMSEGPATH)+strlen(name)+UID_DIGITS+3];
     if (shmemData->path == NULL) {
 	delete shmemData;
 	return NULL;
@@ -249,11 +261,19 @@ SHMem::initSegment(const char *name, int size, bool &init)
     memcpy(shmemData->path,MEMSEGPATH, sizeof(MEMSEGPATH));
     shmemData->path[sizeof(MEMSEGPATH)-1] = '/';
     strcpy(&shmemData->path[sizeof(MEMSEGPATH)],name);
+
+    int mode = 0777;
+    if (strcmp(name,"token_names") != 0) {
+	/* each user gets his own uid array */
+    	sprintf(uid_str, "-%u",getuid());
+    	strcat(shmemData->path,uid_str);
+	mode = 0700;
+    } 
     shmemData->fd = open(shmemData->path, 
-		O_CREAT|O_RDWR|O_EXCL|O_APPEND|O_EXLOCK, 0700);
+		O_CREAT|O_RDWR|O_EXCL|O_APPEND|O_EXLOCK, mode);
     if (shmemData->fd  < 0) {
 	needInit = false;
-	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK, 0700);
+	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK, mode);
     }  else {
 	char *buf;
 	int len = size+RESERVED_OFFSET;
