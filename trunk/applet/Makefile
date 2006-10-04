@@ -46,8 +46,6 @@
 
 CORE_DEPTH = ..
 
-include ../coreconf/config.mk
-
 #############################################################################
 # Locations of toolkits.
 #
@@ -74,6 +72,16 @@ include ../coreconf/config.mk
 
 -include custom.mk
 
+ifdef SLB_DIR
+SLB_JAVA_DIR=$(SLB_DIR)/Smart Cards and Terminals/Cyberflex Access Kits/v4/
+endif
+
+ifdef windir
+SEP=";"
+else
+SEP=":"
+endif
+
 #############################################################################
 # Build Constants
 
@@ -90,7 +98,7 @@ PID=0x62:0x76:0x01:0xFF:0x00:0x00
 #
 # The Java package to which the applet belongs.
 #
-PACKAGE=com.redhat.nkey.applet
+PACKAGE=com.redhat.ckey.applet
 
 #
 # The unqualified name of the applet class.
@@ -139,8 +147,9 @@ clean:
 #
 # The classpath needed to compile the Java source code.
 #
-BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar;$(JAVACARD_KIT_DIR)/lib/api.jar;jars/visaop20.jar"
+BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/api.jar$(SEP)jars/visaop20.jar"
 
+#BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar"
 #
 # build rule
 #
@@ -160,17 +169,24 @@ $(JAVA_CLASS_FILES): $(JAVA_SRC_FILES)
 #
 # Classpath for the converter.
 #
-CONVERT_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/converter.jar;$(JAVACARD_KIT_DIR)/lib/offcardverifier.jar;$(SLB_DIR)/Smart Cards and Terminals/Cyberflex Access Kits/v4/Classlibrary/jc_api_212.jar"
+CONVERT_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/converter.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/offcardverifier.jar$(SEP)$(SLB_JAVA_DIR)/Classlibrary/jc_api_212.jar"
 
 #
 # Location of the .exp files, used for "linking" Javacard code.
 #
-EXPORT_PATH="$(SLB_DIR)\Smart Cards and Terminals\Cyberflex Access Kits\v4\Toolkit\PRGMaker\Export Files"
+EXPORT_PATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/Export Files"
 
 #
 # build rule
 #
 $(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
+	@if [ "$(JAVACARD_KIT_DIR)" = "" -o "$(JAVA_HOME)" = "" -o "$(SLB_JAVA_DIR)" = "" ]; then \
+	    echo "Not all necessary variables have been set."; \
+	    echo "JAVACARD_KIT_DIR=$(JAVA_CARD_KIT_DIR)"; \
+	    echo "JAVA_HOME=$(JAVA_HOME)"; \
+	    echo "SLB_JAVA_DIR=$(SLB_JAVA_DIR)"; \
+	    exit 1; \
+	fi 
 	$(JAVA) -classpath ${CONVERT_CLASSPATH} com.sun.javacard.converter.Converter -classdir $(OUTPUT_DIR) -out EXP JCA CAP -exportpath $(EXPORT_PATH) -applet $(AID) $(APPLET_QUALIFIED_CLASS_NAME) -d $(OUTPUT_DIR) $(PACKAGE) $(PID) 1.0 
 	mv $(CONVERTER_OUTPUT_DIR)/applet.cap $@ 
 
@@ -185,7 +201,7 @@ $(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
 #
 # Classpath for the IJC converter.
 #
-IJC_CLASSPATH="$(SLB_DIR)\Smart Cards and Terminals\Cyberflex Access Kits\v4\Toolkit\PRGMaker\makeijc.jar"
+IJC_CLASSPATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/makeijc.jar"
 
 #
 # build rule
