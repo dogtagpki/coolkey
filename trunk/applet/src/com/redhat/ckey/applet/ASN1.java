@@ -49,7 +49,7 @@
 // Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // END LICENSE_BLOCK
 
-package com.redhat.nkey.applet;
+package com.redhat.ckey.applet;
 
 import javacard.framework.ISOException;
 import javacard.framework.JCSystem;

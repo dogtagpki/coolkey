@@ -59,7 +59,7 @@
 // Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // END LICENSE_BLOCK
 
-package com.redhat.nkey.applet;
+package com.redhat.ckey.applet;
 
 import javacard.framework.*;
 import javacard.security.*;
@@ -68,7 +68,7 @@ import javacardx.crypto.Cipher;
 import visa.openplatform.ProviderSecurityDomain;
 import visa.openplatform.OPSystem;
 
-// Referenced classes of package com.redhat.nkey.applet:
+// Referenced classes of package com.redhat.ckey.applet:
 //	    MemoryManager, ObjectManager, ASN1
 
 /**
@@ -123,8 +123,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 3;
-    private static final short BUILDID_MAJOR = (short) 0x4472;
-    private static final short BUILDID_MINOR = (short) 0x4aa7;
+    private static final short BUILDID_MAJOR = (short) 0x4523;
+    private static final short BUILDID_MINOR = (short) 0xee54;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -2343,9 +2343,9 @@ public class CardEdge extends Applet
 	    ISOException.throwIt(SW_OPERATION_NOT_ALLOWED);
 	}
 	create_object_ACL = Util.getShort(buffer, ISO7816.OFFSET_CDATA);
-	create_key_ACL = Util.getShort(buffer, (short)ISO7816.OFFSET_CDATA + 2);
-	create_pin_ACL = Util.getShort(buffer, (short)ISO7816.OFFSET_CDATA + 4);
-	enable_ACL_change = buffer[ISO719.OFFSET_CDATA+6];
+	create_key_ACL = Util.getShort(buffer,(short)(ISO7816.OFFSET_CDATA+2));
+	create_pin_ACL = Util.getShort(buffer,(short)(ISO7816.OFFSET_CDATA+4));
+	enable_ACL_change = buffer[ISO7816.OFFSET_CDATA+6];
 	isWritable = 0;
 	if (((create_object_ACL & 0xff) != 0) &&
 	    			((create_key_ACL & 0xff) != 0)) {
