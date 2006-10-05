@@ -70,9 +70,15 @@ CORE_DEPTH = ..
 #
 #SLB_DIR=c:\Program Files\Schlumberger
 
+#
+# The top-level of the open platform toolkey
+#
+#OPEN_PLATFORM_DIR=C:/open_platform
+
 -include custom.mk
 
 ifdef SLB_DIR
+# sub directory of Schlumberger's Cyberflex SDK.
 SLB_JAVA_DIR=$(SLB_DIR)/Smart Cards and Terminals/Cyberflex Access Kits/v4/
 endif
 
@@ -147,7 +153,7 @@ clean:
 #
 # The classpath needed to compile the Java source code.
 #
-BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/api.jar$(SEP)jars/visaop20.jar"
+BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/api.jar$(SEP)$(OPEN_PLATFORM_DIR)/jc211/bin/visaop20.jar"
 
 #BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar"
 #
@@ -180,11 +186,12 @@ EXPORT_PATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/Export Files"
 # build rule
 #
 $(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
-	@if [ "$(JAVACARD_KIT_DIR)" = "" -o "$(JAVA_HOME)" = "" -o "$(SLB_JAVA_DIR)" = "" ]; then \
+	@if [ "$(JAVACARD_KIT_DIR)" = "" -o "$(JAVA_HOME)" = "" -o "$(SLB_JAVA_DIR)" = "" -o "$(OPEN_PLATFORM_DIR)" = "" ]; then \
 	    echo "Not all necessary variables have been set."; \
 	    echo "JAVACARD_KIT_DIR=$(JAVA_CARD_KIT_DIR)"; \
 	    echo "JAVA_HOME=$(JAVA_HOME)"; \
 	    echo "SLB_JAVA_DIR=$(SLB_JAVA_DIR)"; \
+	    echo "OPEN_PLATFORM_DIR=$(OPEN_PLATFORM_DIR)"; \
 	    exit 1; \
 	fi 
 	$(JAVA) -classpath ${CONVERT_CLASSPATH} com.sun.javacard.converter.Converter -classdir $(OUTPUT_DIR) -out EXP JCA CAP -exportpath $(EXPORT_PATH) -applet $(AID) $(APPLET_QUALIFIED_CLASS_NAME) -d $(OUTPUT_DIR) $(PACKAGE) $(PID) 1.0 
@@ -208,8 +215,8 @@ IJC_CLASSPATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/makeijc.jar"
 #
 $(CONVERTER_OUTPUT_DIR)/applet.ijc: $(CONVERTER_OUTPUT_DIR)/applet.jar
 	$(JAVA) -classpath $(IJC_CLASSPATH) com.slb.javacard.jctools.ijc.MakeIJC -verbose -expFileDir $(EXPORT_PATH) -type onCardVerifier $(CONVERTER_OUTPUT_DIR)/applet.jar
-	mkdir -p ../dist/$(OBJDIR)/bin
-	cp $@ ../dist/$(OBJDIR)/bin/CardEdge.$(shell cat .buildid).ijc
+	-@mkdir -p .libs
+	cp $@ .libs/CardEdge.$(shell cat .buildid).ijc
 
 export:
 
