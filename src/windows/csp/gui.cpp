@@ -159,7 +159,7 @@ bool DisplayPINDialog(BinStr* pin)
 {
    INT_PTR result;
 
-   result = DialogBoxParam(g_hModule, MAKEINTRESOURCE(IDD_PIN_DIALOG), NULL,
+   result = DialogBoxParam(g_hModule, MAKEINTRESOURCE(IDD_PIN_DIALOG_1), NULL,
       PINDialogProc, reinterpret_cast<LPARAM>(pin));
 
    switch(result)
