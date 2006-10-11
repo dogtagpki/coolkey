@@ -35,9 +35,9 @@
 #undef UNICODE
 
 #ifndef CSP_PASSTHROUGH
-#define PROVIDER_NAME "Identity Alliance CSP"
+#define PROVIDER_NAME "CoolKey PKCS #11 CSP"
 #else
-#define PROVIDER_NAME "Identity Alliance CSP - Passthrough"
+#define PROVIDER_NAME "CoolKey PKCS #11 CSP - Passthrough"
 #endif
 
 #define PROVIDER_TYPE PROV_RSA_FULL
@@ -56,7 +56,7 @@
 #include <string>
 #include <set>
 #include "cspdk.h"
-#include "cryptoki_win32.h"
+#include "pkcs11.h"
 #include "BinStr.h"
 #include "Key.h"
 #include "Session.h"

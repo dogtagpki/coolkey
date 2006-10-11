@@ -26,7 +26,7 @@
 ******************************************************************/
 
 #include "csp.h"
-#include "IDARES.h"
+#include "cspres.h" 
 
 using namespace std;
 using namespace MCSP;
@@ -180,7 +180,7 @@ CPAcquireContext(
             int pin_size;
             BinStr userPIN;
             userPIN.resize(256);
-            if (!(pin_size = IDADisplayPinDialog((char*)&userPIN[0], userPIN.size())))
+            if (!(pin_size = CSPDisplayPinDialog((char*)&userPIN[0], userPIN.size())))
                ThrowMsg(SCARD_W_CANCELLED_BY_USER, "PIN dialog cancelled");
 
             userPIN.resize(pin_size);
