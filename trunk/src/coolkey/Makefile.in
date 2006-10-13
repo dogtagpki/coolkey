@@ -77,6 +77,7 @@ am__strip_dir = `echo $$p | sed -e 's|^.*/||'`;
 am__installdirs = "$(DESTDIR)$(pkcs11dir)"
 pkcs11LTLIBRARIES_INSTALL = $(INSTALL)
 LTLIBRARIES = $(pkcs11_LTLIBRARIES)
+am__DEPENDENCIES_1 =
 am_libcoolkeypk11_la_OBJECTS = libcoolkeypk11_la-coolkey.lo \
 	libcoolkeypk11_la-dllmain.lo libcoolkeypk11_la-locking.lo \
 	libcoolkeypk11_la-log.lo libcoolkeypk11_la-machdep.lo \
@@ -160,6 +161,8 @@ MAINT = @MAINT@
 MAINTAINER_MODE_FALSE = @MAINTAINER_MODE_FALSE@
 MAINTAINER_MODE_TRUE = @MAINTAINER_MODE_TRUE@
 MAKEINFO = @MAKEINFO@
+NSS_CFLAGS = @NSS_CFLAGS@
+NSS_LIBS = @NSS_LIBS@
 OBJEXT = @OBJEXT@
 PACKAGE = @PACKAGE@
 PACKAGE_BUGREPORT = @PACKAGE_BUGREPORT@

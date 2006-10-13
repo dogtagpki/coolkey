@@ -1,4 +1,4 @@
-# BEGIN COPYRIGHT BLOCK
+# ***** BEGIN COPYRIGHT BLOCK *****
 # Copyright (C) 2005 Red Hat, Inc.
 # All rights reserved.
 #
@@ -15,17 +15,13 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-# END COPYRIGHT BLOCK
+# ***** END COPYRIGHT BLOCK *****
 
-# Process this file with automake to create Makefile.in.
+# Process this file with automake to create Makefile.in
 
-SUBDIRS = src/libckyapplet src/coolkey src/install
+INCLUDES=$(NSS_CFLAGS)
 
-ACLOCAL_AMFLAGS = -I m4
+bin_PROGRAMS=pk11install
 
-EXTRA_DIST =
-
-DISTCLEANFILES = 
-
-AUTOMAKE_OPTIONS = foreign
-
+pk11install_SOURCES = pk11install.c 
+pk11install_LDADD = -lsoftokn3
