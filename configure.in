@@ -93,6 +93,7 @@ AC_PROG_LN_S
 if test $WINDOWS -ne 1; then
 AC_CHECK_LIB(z, uncompress, , AC_MSG_ERROR(could not locate libz compression library))
 AC_CHECK_LIB(dl, dlopen, , AC_MSG_ERROR(could not locate dynamic library services library))
+PKG_CHECK_MODULES(NSS, nss, true, [ AC_MSG_ERROR(could not find NSS Crypto libraries) ])
 fi
 
 # add our compiled static libraries
@@ -114,6 +115,7 @@ else
         fi
       ])
 fi
+AC_SUBST(NSS_CFLAGS)
 AC_SUBST(ZLIB_CFLAGS)
 AC_SUBST(ZLIB_LIBS)
 AC_SUBST(PCSC_CFLAGS)
@@ -144,5 +146,6 @@ Makefile
 src/libckyapplet/Makefile
 src/libckyapplet/libckyapplet.pc
 src/coolkey/Makefile
+src/install/Makefile
 ])
 AC_OUTPUT
