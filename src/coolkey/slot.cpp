@@ -585,16 +585,41 @@ Slot::connectToToken()
     }
 
     Transaction trans;
-    trans.begin(conn);
+    status = trans.begin(conn);
+
+    /* CAC card are cranky after they are first inserted.
+     *  don't continue until we can convince the tranaction to work */
+    for (int count = 0; count < 10 && status == CKYSCARDERR 
+       && CKYCardConnection_GetLastError(conn) == SCARD_W_RESET_CARD; count++) {
+	log->log("CAC Card Reset detected retry %d: time %d ms\n", count,
+		OSTimeNow() - time);
+        CKYCardConnection_Disconnect(conn);
+	OSSleep(100000); /* 100 ms */
+        status = CKYCardConnection_Connect(conn, readerName);
+	if (status != CKYSUCCESS) {
+	   continue;
+	}
+	status = trans.begin(conn);
+    }
+
+    /* Can't get a transaction, give up */
+    if (status != CKYSUCCESS) {
+        log->log("Transaction Failed 0x%x\n", status);
+	handleConnectionError();
+    }
 
     // see if the applet is selectable
 
     log->log("time connnect: Begin transaction %d ms\n", OSTimeNow() - time);
     status = CKYApplet_SelectCoolKeyManager(conn, NULL);
     if (status != CKYSUCCESS) {
+        log->log("CoolKey Select failed 0x%x\n", status);
 	status = CACApplet_SelectPKI(conn, 0, NULL);
 	if (status != CKYSUCCESS) {
+            log->log("CAC Select failed 0x%x\n", status);
 	    if (status == CKYSCARDERR) {
+		log->log("CAC Card Failure 0x%x\n", 
+			CKYCardConnection_GetLastError(conn));
 		disconnect();
 	    }
 	    return;
@@ -1120,6 +1145,8 @@ void
 Slot::handleConnectionError()
 {
     long error = CKYCardConnection_GetLastError(conn);
+
+    log->log("Connection Error = 0x%x\n", error);
 
     // Force a reconnect after a token operation fails. The most
     // common reason for it to fail is that it has been removed, but
@@ -1966,7 +1993,7 @@ void
 Slot::loadCACCert(CKYByte instance)
 {
     CKYISOStatus apduRC;
-    CKYStatus status;
+    CKYStatus status = CKYSUCCESS;
     CKYBuffer cert;
     CKYBuffer rawCert;
     CKYBuffer shmCert;

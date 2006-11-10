@@ -53,4 +53,14 @@ class FileLog : public Log {
     virtual ~FileLog();
 };
 
+class SysLog : public Log {
+  private:
+   SysLog(SysLog &) {}
+   SysLog * operator=(SysLog &) { return *this; }
+  public:
+    SysLog() { }
+    void log(const char *msg, ...);
+    virtual ~SysLog() { }
+};
+
 #endif
