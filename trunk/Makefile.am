@@ -19,7 +19,11 @@
 
 # Process this file with automake to create Makefile.in.
 
-SUBDIRS = src/libckyapplet src/coolkey src/install
+SUBDIRS = src/libckyapplet src/coolkey 
+
+if BUILD_PK11INSTALL
+SUBDIRS += src/install
+endif
 
 ACLOCAL_AMFLAGS = -I m4
 
@@ -28,4 +32,5 @@ EXTRA_DIST =
 DISTCLEANFILES = 
 
 AUTOMAKE_OPTIONS = foreign
+
 

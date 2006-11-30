@@ -56,7 +56,7 @@ class FileLog : public Log {
 class SysLog : public Log {
   private:
    SysLog(SysLog &) {}
-   SysLog * operator=(SysLog &) { return *this; }
+   SysLog & operator=(SysLog &) { return *this; }
   public:
     SysLog() { }
     void log(const char *msg, ...);

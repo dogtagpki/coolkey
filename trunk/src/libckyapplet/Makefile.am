@@ -24,6 +24,7 @@ SUBDIRS =
 AM_CFLAGS =
 
 # bleh what do I add just to get static but pic libraries?
+bogusdir = $(libdir)/bogus
 lib_LTLIBRARIES = libckyapplet.la
 
 libckyapplet_la_SOURCES = \
