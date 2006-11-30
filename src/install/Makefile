@@ -100,6 +100,8 @@ AUTOCONF = ${SHELL} /builds/fedora/coolkey/missing --run autoconf
 AUTOHEADER = ${SHELL} /builds/fedora/coolkey/missing --run autoheader
 AUTOMAKE = ${SHELL} /builds/fedora/coolkey/missing --run automake-1.9
 AWK = gawk
+BUILD_PK11INSTALL_FALSE = #
+BUILD_PK11INSTALL_TRUE = 
 CC = gcc
 CCDEPMODE = depmode=gcc3
 CFLAGS = -g -O2

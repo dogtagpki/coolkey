@@ -57,6 +57,7 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
+@BUILD_PK11INSTALL_TRUE@am__append_1 = src/install
 DIST_COMMON = README $(am__configure_deps) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
 	$(top_srcdir)/configure ChangeLog compile config.guess \
@@ -82,7 +83,7 @@ RECURSIVE_TARGETS = all-recursive check-recursive dvi-recursive \
 	uninstall-recursive
 ETAGS = etags
 CTAGS = ctags
-DIST_SUBDIRS = $(SUBDIRS)
+DIST_SUBDIRS = src/libckyapplet src/coolkey src/install
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 distdir = $(PACKAGE)-$(VERSION)
 top_distdir = $(distdir)
@@ -103,6 +104,8 @@ AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+BUILD_PK11INSTALL_FALSE = @BUILD_PK11INSTALL_FALSE@
+BUILD_PK11INSTALL_TRUE = @BUILD_PK11INSTALL_TRUE@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
@@ -209,7 +212,7 @@ target_alias = @target_alias@
 target_cpu = @target_cpu@
 target_os = @target_os@
 target_vendor = @target_vendor@
-SUBDIRS = src/libckyapplet src/coolkey src/install
+SUBDIRS = src/libckyapplet src/coolkey $(am__append_1)
 ACLOCAL_AMFLAGS = -I m4
 EXTRA_DIST = 
 DISTCLEANFILES = 
