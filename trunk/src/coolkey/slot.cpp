@@ -630,7 +630,7 @@ Slot::connectToToken()
 	 * ... even removing and reinserting the card does not change the
 	 * applet selection,
 	 * do so reset the card now  so we can get the CUID 
-	 * NOTE: this will cause other apps to loose login state! */
+	 * NOTE: this will cause other apps to loose login state!
 	CKYCardConnection_Reset(conn);
         readCUID(); /* get the CUID before we loose the ability to */
 	isVersion1Key = 0;
@@ -2041,8 +2041,7 @@ Slot::loadCACCert(CKYByte instance)
     CKYBool needRead = 1;
 
     /* see if it matches the shared memory */
-    if (shmem.isValid() &&  shmem.CUIDIsEqual(&mCUID) && 
-			shmem.getDataVersion() == dataVersion) {
+    if (shmem.isValid() &&  shmem.getDataVersion() == dataVersion) {
 	shmem.readCACCert(&shmCert, instance);
 	CKYSize certSize = CKYBuffer_Size(&rawCert);
 	CKYSize shmCertSize = CKYBuffer_Size(&shmCert);
@@ -2071,7 +2070,6 @@ Slot::loadCACCert(CKYByte instance)
 	/* it doesn't, read the new cert and update the cache */
 	if (instance == 0) {
 	    shmem.clearValid(0);
-	    shmem.setCUID(&mCUID);
 	    shmem.setVersion(SHMEM_VERSION);
 	    shmem.setDataVersion(dataVersion);
 	} else {
