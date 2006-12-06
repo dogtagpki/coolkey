@@ -123,8 +123,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 3;
-    private static final short BUILDID_MAJOR = (short) 0x4523;
-    private static final short BUILDID_MINOR = (short) 0xee54;
+    private static final short BUILDID_MAJOR = (short) 0x4577;
+    private static final short BUILDID_MINOR = (short) 0x09c8;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -426,6 +426,24 @@ public class CardEdge extends Applet
        0x2a, (byte)0x86, 0x48, (byte)0x86, (byte)0xf7, 0x0d, 0x01, 0x01, 0x01
     };
     private static final short pkcs8_RSA_oid_size = 11;
+
+    // PKCS #1 SHA1 encoding header (DER).
+    private static final byte sha1encode[] = {
+       // SEQUENCE 33 bytes
+       0x30,  0x21,
+         // alogirthm ID (Sequence, 9 bytes)
+         0x30, 0x09,
+           // OID tag (5 bytes)
+           0x06, 0x05,
+             // sha1 oid 1.3.14.3.2.26
+             0x2b, 0x0e, 0x03, 0x02, 0x1a,
+           // paremeter = NULL
+           0x05, 0x00,
+         // the actual hash (OCTECT, 20 bytes)
+	0x04, 0x14
+	// Hash goes here
+    };
+    private static final short sha1encodeLen = 15;
 
     /**
      * Instance variable primitive declarations  ALL PERSISTENT MEMORY
@@ -1954,12 +1972,10 @@ public class CardEdge extends Applet
 	Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,
 				(short)(2 + pubkeysize), (short)16);
 	doDigest(iobuf, (short)2, (short)(16+pubkeysize),
-		 iobuf, (short)(2+pubkeysize+2) );
+		 iobuf, (short)(2+pubkeysize+128) );
 
 	// Sign the digest, writing the signature over the digest in the iobuf
-	Signature sign = getSignature(prv_key_nb, Signature.ALG_RSA_SHA_PKCS1);
-	sign.init(keys[prv_key_nb], Signature.MODE_SIGN);
-	short sigsize = sign.sign(iobuf, (short) (2+pubkeysize+2),
+	short sigsize = handSign(prv_key_nb, iobuf, (short) (2+pubkeysize+128),
 	    (short)shaDigest.getLength(), iobuf, (short)(2+pubkeysize+2));
 	Util.setShort(iobuf, (short)(2 + pubkeysize), sigsize);
 
@@ -1968,6 +1984,34 @@ public class CardEdge extends Applet
 	Util.setShort(buffer, ZEROS, iobuf_size);
 	apdu.setOutgoingAndSend(ZEROS, (short)2);
     }
+
+    //
+    // HandSign hard codes SHA1.
+    //
+    private short handSign(byte key_nb, byte inbuf[], short inOffset, 
+			short len, byte outbuf[], short outOffset)
+    {
+	short index;
+	//
+	// build the signed data
+	//
+	// Hard coded for SHA1
+	index = (short)(outOffset+108);
+	Util.arrayCopyNonAtomic(inbuf, inOffset, outbuf, index, (short)20);
+	index = (short) (index - sha1encodeLen);
+	Util.arrayCopyNonAtomic(sha1encode,ZEROS,outbuf,index,sha1encodeLen);
+	index = (short) (index -1 );
+	outbuf[index] = 0;
+	Util.arrayFillNonAtomic(outbuf,(short)(outOffset+2), 
+		(short)(index-outOffset-2), (byte)0xff);
+	outbuf[(short)(outOffset+1)] = 1;
+	outbuf[outOffset] = 0;
+	Cipher ciph = getCipher(key_nb, Cipher.ALG_RSA_NOPAD);
+	ciph.init(keys[key_nb], (byte) Cipher.MODE_ENCRYPT);
+	return ciph.doFinal(outbuf, outOffset, (short)128, 
+				   outbuf, outOffset);
+    }
+	
 
     private void GenerateKeyPairRSA(APDU apdu, byte buffer[],
 	byte prv_key_nb, byte pub_key_nb, short prv_acl)
