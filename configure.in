@@ -71,8 +71,11 @@ case "$host" in
 	MAC=1 
 	SCARD_LIB_NAME="PCSC.Framework/PCSC"
 	PCSC_MSG=yes
-	PCSC_CFLAGS=""
+	PCSC_CFLAGS="-I/System/Library/Frameworks/PCSC.framework/Versions/Current/Headers"
 	PCSC_LIBS="-Wl,-framework,PCSC"
+	CFLAGS="-DMAC  -I/System/Library/Frameworks/Security.framework/Versions/Current/Headers -isysroot /Developer/SDKs/MacOSX10.4u.sdk -arch ppc -arch i386"
+	LDFLAGS="-L/System/Library/Frameworks/Security.framework/Versions/Current/Security -arch ppc -arch i386"
+	CXXFLAGS="-DMAC  -I/System/Library/Frameworks/Security.framework/Versions/Current/Headers -isysroot /Developer/SDKs/MacOSX10.4u.sdk -arch ppc -arch i386"
 	;;
 *)
   	AC_MSG_RESULT([UNIX/LINUX])
