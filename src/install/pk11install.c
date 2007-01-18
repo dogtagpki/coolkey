@@ -144,7 +144,7 @@ DirList dirList[] = {
     { AppDataDir, "Thunderbird\\Profiles\\*", NULL },
     { NetscapeInstallDir, "..\\Users\\*", NULL },
 #endif
-#ifndef DARWIN
+#ifndef MAC 
 #ifdef UNIX
     { HomeDir, ".mozilla/firefox/*", NULL },
     { HomeDir, ".mozilla/*", NULL },
@@ -152,7 +152,7 @@ DirList dirList[] = {
     { HomeDir, ".netscape", NULL },
 #endif
 #endif
-#ifdef DARWIN
+#ifdef MAC 
 
     { HomeDir, "Library/Mozilla/Profiles/*", "*.slt"},
     { HomeDir, "Library/Application Support/Firefox/Profiles/*", NULL },
