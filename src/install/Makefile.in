@@ -74,7 +74,8 @@ binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
 am_pk11install_OBJECTS = pk11install.$(OBJEXT)
 pk11install_OBJECTS = $(am_pk11install_OBJECTS)
-pk11install_DEPENDENCIES =
+am__DEPENDENCIES_1 =
+pk11install_DEPENDENCIES = $(am__DEPENDENCIES_1)
 DEFAULT_INCLUDES = -I. -I$(srcdir) -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -210,7 +211,7 @@ target_os = @target_os@
 target_vendor = @target_vendor@
 INCLUDES = $(NSS_CFLAGS)
 pk11install_SOURCES = pk11install.c 
-pk11install_LDADD = -lsoftokn3
+pk11install_LDADD = $(NSS_LIBS) -lsoftokn3
 all: all-am
 
 .SUFFIXES:

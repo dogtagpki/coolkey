@@ -24,4 +24,4 @@ INCLUDES=$(NSS_CFLAGS)
 bin_PROGRAMS=pk11install
 
 pk11install_SOURCES = pk11install.c 
-pk11install_LDADD = -lsoftokn3
+pk11install_LDADD = $(NSS_LIBS) -lsoftokn3
