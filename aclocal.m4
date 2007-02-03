@@ -3041,10 +3041,7 @@ case $host_os in
 	echo EXPORTS > $output_objdir/$soname.def;
 	cat $export_symbols >> $output_objdir/$soname.def;
       fi~
-      #
-      # Hack... gcc and lc are quite different, we can use either for cygwin
-      # try to get a line that both are happy with...
-      #
+
       $CC -LD -shared -nostdlib $output_objdir/$soname.def $predep_objects $libobjs $deplibs $postdep_objects $compiler_flags -o $output_objdir/$soname ${wl}--enable-auto-image-base -Xlinker --out-implib -Xlinker '
     else
       _LT_AC_TAGVAR(ld_shlibs, $1)=no
