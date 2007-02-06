@@ -25,7 +25,7 @@
 /*
  * windows specific globing search
  */
-#ifdef _WINDOWS
+#ifdef WIN32 
 #include <windows.h>
 #include <winver.h>
 #include <winreg.h>
@@ -138,7 +138,7 @@ typedef struct _DirList {
 } DirList;
 
 DirList dirList[] = {
-#ifdef _WINDOWS
+#ifdef WIN32 
     { AppDataDir, "Mozilla\\Profiles\\*", "*.slt" },
     { AppDataDir, "Mozilla\\Firefox\\Profiles\\*", NULL },
     { AppDataDir, "Thunderbird\\Profiles\\*", NULL },
@@ -309,7 +309,7 @@ int main(int argc, char **argv)
     int i;
     InstType type = Install;
     char * path = NULL;
-#ifdef _WINDOWS
+#ifdef WIN32
     BOOL brc;
     HKEY regKey;
     unsigned long lrc;
@@ -363,7 +363,7 @@ int main(int argc, char **argv)
 	return 0;
     }
 
-#ifdef _WINDOWS
+#ifdef WIN32 
     /* App Data Dir */
     brc = SHGetSpecialFolderPath(NULL, appData, CSIDL_APPDATA, FALSE);
     if (brc) {
