@@ -105,7 +105,9 @@ PKCS11Object::parseOldObject(const CKYBuffer *data)
 	if ((attrib.getType() == CKA_CLASS) || 
 	    (attrib.getType() == CKA_CERTIFICATE_TYPE) ||
 	    (attrib.getType() == CKA_KEY_TYPE)) {
-	    if (attrLen != sizeof (CK_ULONG)) {
+	    /* ulongs are 4 bytes on the token, even if they are 8 or
+	     * more in the pkcs11 module */
+	    if (attrLen != 4) {
                 throw PKCS11Exception(CKR_DEVICE_ERROR,
                 "Invalid attribute length %d\n", attrLen);
 	    }
@@ -183,7 +185,7 @@ PKCS11Object::expandAttributes(unsigned long fixedAttrs)
     if (!attributeExists(CKA_CLASS)) {
 	PKCS11Attribute attrib;
 	attrib.setType(CKA_CLASS);
-	attrib.setValue((CKYByte *)&objectType, 4);
+	attrib.setValue((CKYByte *)&objectType, sizeof(CK_ULONG));
         attributes.push_back(attrib);
     }
 
