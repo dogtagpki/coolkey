@@ -234,6 +234,7 @@ target_os = @target_os@
 target_vendor = @target_vendor@
 SUBDIRS = 
 AM_CPP_FLAGS = 
+EXTRA_DIST = coolkeypk11.def
 pkcs11dir = $(libdir)/pkcs11
 pkcs11_LTLIBRARIES = libcoolkeypk11.la
 libcoolkeypk11_la_SOURCES = \
@@ -245,7 +246,6 @@ libcoolkeypk11_la_SOURCES = \
 	object.cpp \
 	PKCS11Exception.cpp \
 	slot.cpp    \
-	config.h \
 	locking.h \
 	log.h \
 	machdep.h \
@@ -655,6 +655,8 @@ info: info-recursive
 info-am:
 
 install-data-am: install-pkcs11LTLIBRARIES
+	@$(NORMAL_INSTALL)
+	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
 install-exec-am:
 
@@ -692,14 +694,15 @@ uninstall-info: uninstall-info-recursive
 	distclean-compile distclean-generic distclean-libtool \
 	distclean-recursive distclean-tags distdir dvi dvi-am html \
 	html-am info info-am install install-am install-data \
-	install-data-am install-exec install-exec-am install-info \
-	install-info-am install-man install-pkcs11LTLIBRARIES \
-	install-strip installcheck installcheck-am installdirs \
-	installdirs-am maintainer-clean maintainer-clean-generic \
-	maintainer-clean-recursive mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-libtool mostlyclean-recursive \
-	pdf pdf-am ps ps-am tags tags-recursive uninstall uninstall-am \
-	uninstall-info-am uninstall-pkcs11LTLIBRARIES
+	install-data-am install-data-hook install-exec install-exec-am \
+	install-info install-info-am install-man \
+	install-pkcs11LTLIBRARIES install-strip installcheck \
+	installcheck-am installdirs installdirs-am maintainer-clean \
+	maintainer-clean-generic maintainer-clean-recursive \
+	mostlyclean mostlyclean-compile mostlyclean-generic \
+	mostlyclean-libtool mostlyclean-recursive pdf pdf-am ps ps-am \
+	tags tags-recursive uninstall uninstall-am uninstall-info-am \
+	uninstall-pkcs11LTLIBRARIES
 
 
 #
@@ -712,6 +715,11 @@ coolkeypk11.sym: coolkeypk11.def
 
 clean-generic:
 	rm -f coolkeypk11.sym
+
+# remove the static and libtool libraries if necessary
+install-data-hook:
+	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.a
+	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.la
 
 #MODULE = coolkeypk11
 #REQUIRES = ckyapplet zlib

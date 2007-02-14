@@ -625,14 +625,10 @@ Slot::connectToToken()
 	    return;
 	}
 	state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
-	/* ARG CAC is evil. once you've selected an applet, you cannot
-	 * select the card manager unless you reset the card...
-	 * ... even removing and reinserting the card does not change the
-	 * applet selection,
-	 * do so reset the card now  so we can get the CUID 
-	 * NOTE: this will cause other apps to loose login state!
-	CKYCardConnection_Reset(conn);
-        readCUID(); /* get the CUID before we loose the ability to */
+	/* skip the read of the cuid. We really don't need it and,
+         * the only way to get it from the cac is to reset it.
+         * other apps may be running now, so resetting the cac is a bit
+         * unfriendly */
 	isVersion1Key = 0;
 	needLogin = 1;
 
@@ -692,6 +688,8 @@ Slot::invalidateLogin(bool hard)
 {
     if (isVersion1Key) {
 	if (hard) {
+	    reverify = false; /* no need to revalidate in the future,
+	                       * we're clearing the nonce now */
 	    nonceValid = false;
 	    CKYBuffer_Zero(&nonce);
 	    CKYBuffer_Resize(&nonce,8);
