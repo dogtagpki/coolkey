@@ -24,6 +24,9 @@
 #include "log.h"
 #include <cstdarg>
 #include "PKCS11Exception.h"
+#ifndef _WIN32
+#include "syslog.h"
+#endif
 
 
 FileLog::FileLog(const char *filename )
@@ -80,4 +83,31 @@ Log::dump(CKYBuffer *buf)
 FileLog::~FileLog()
 {
     fclose(file);
+}
+
+
+void
+SysLog::log(const char *msg, ...)
+{
+#ifndef _WIN32
+
+#define COOLKEY_PREFIX "libcoolkey:"
+    va_list ap;
+    char *msg2;
+
+    va_start(ap, msg);
+   
+    msg2 = (char *)malloc(strlen(msg)+sizeof(COOLKEY_PREFIX));
+    if (msg2) {
+	strcpy(msg2, COOLKEY_PREFIX);
+	strcat(msg2, msg); 
+
+	vsyslog(LOG_WARNING,  msg2, ap);
+	free(msg2);
+   } else {
+	vsyslog(LOG_WARNING,  msg, ap);
+   }
+
+    va_end(ap);
+#endif
 }

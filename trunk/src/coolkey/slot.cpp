@@ -2082,7 +2082,7 @@ Slot::loadCACCert(CKYByte instance)
 		     * is now valid */
 		    shmem.setValid();
 		}
-	   
+		return;
 	    }
 	}
 
