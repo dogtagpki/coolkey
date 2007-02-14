@@ -58,9 +58,9 @@ class SysLog : public Log {
    SysLog(SysLog &) {}
    SysLog & operator=(SysLog &) { return *this; }
   public:
-    SysLog() { }
+    SysLog() {}
     void log(const char *msg, ...);
-    virtual ~SysLog() { }
+    virtual ~SysLog() {}
 };
 
 #endif

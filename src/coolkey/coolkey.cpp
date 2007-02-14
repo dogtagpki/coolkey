@@ -225,10 +225,15 @@ C_Initialize(CK_VOID_PTR pInitArgs)
         }
     }
     char * logFileName = getenv("COOL_KEY_LOG_FILE");
-    if (logFileName)
-	log = new FileLog(logFileName);
-    else
+    if (logFileName) {
+	if (strcmp(logFileName,"SYSLOG") == 0) {
+	    log = new SysLog();
+	} else {
+	    log = new FileLog(logFileName);
+	}
+    } else {
 	log = new DummyLog();
+    }
     log->log("Initialize called, hello %d\n", 5);
     CKY_SetName("coolkey");
     slotList = new SlotList(log);
