@@ -233,6 +233,12 @@ target_os = @target_os@
 target_vendor = @target_vendor@
 SUBDIRS = 
 AM_CFLAGS = 
+EXTRA_DIST = \
+	cky_list.i \
+	dynlink_win.c \
+	dynlink_unix.c \
+	dynlink_mac.c
+
 
 # bleh what do I add just to get static but pic libraries?
 bogusdir = $(libdir)/bogus
@@ -667,6 +673,8 @@ info: info-recursive
 info-am:
 
 install-data-am: install-nobase_includeHEADERS install-pcDATA
+	@$(NORMAL_INSTALL)
+	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
 install-exec-am: install-libLTLIBRARIES
 
@@ -705,17 +713,22 @@ uninstall-info: uninstall-info-recursive
 	distclean-compile distclean-generic distclean-libtool \
 	distclean-recursive distclean-tags distdir dvi dvi-am html \
 	html-am info info-am install install-am install-data \
-	install-data-am install-exec install-exec-am install-info \
-	install-info-am install-libLTLIBRARIES install-man \
-	install-nobase_includeHEADERS install-pcDATA install-strip \
-	installcheck installcheck-am installdirs installdirs-am \
-	maintainer-clean maintainer-clean-generic \
+	install-data-am install-data-hook install-exec install-exec-am \
+	install-info install-info-am install-libLTLIBRARIES \
+	install-man install-nobase_includeHEADERS install-pcDATA \
+	install-strip installcheck installcheck-am installdirs \
+	installdirs-am maintainer-clean maintainer-clean-generic \
 	maintainer-clean-recursive mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool mostlyclean-recursive \
 	pdf pdf-am ps ps-am tags tags-recursive uninstall uninstall-am \
 	uninstall-info-am uninstall-libLTLIBRARIES \
 	uninstall-nobase_includeHEADERS uninstall-pcDATA
 
+
+# remove the static and libtool libraries 
+install-data-hook:
+	rm -f $(DESTDIR)$(libdir)/libckyapplet.a
+	rm -f $(DESTDIR)$(libdir)/libckyapplet.la
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

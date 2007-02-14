@@ -247,7 +247,9 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	// from getSHMemAddr.
 	return NULL;
     }
+    int mask = umask(0);
     int ret = mkdir (MEMSEGPATH, 0777);
+    umask(mask);
     if ((ret == -1) && (errno != EEXIST)) {
 	delete shmemData;
 	return NULL;

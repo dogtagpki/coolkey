@@ -21,6 +21,7 @@
 
 SUBDIRS = 
 AM_CPP_FLAGS =
+EXTRA_DIST = coolkeypk11.def
 pkcs11dir = $(libdir)/pkcs11
 pkcs11_LTLIBRARIES = libcoolkeypk11.la
 
@@ -33,7 +34,6 @@ libcoolkeypk11_la_SOURCES = \
 	object.cpp \
 	PKCS11Exception.cpp \
 	slot.cpp    \
-	config.h \
 	locking.h \
 	log.h \
 	machdep.h \
@@ -65,6 +65,10 @@ coolkeypk11.sym: coolkeypk11.def
 clean-generic:
 	rm -f coolkeypk11.sym
 
+# remove the static and libtool libraries if necessary
+install-data-hook:
+	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.a
+	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.la
 
 
 #MODULE = coolkeypk11

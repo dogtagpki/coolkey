@@ -1068,7 +1068,6 @@ Optional Packages:
                           both]
   --with-tags[=TAGS]
                           include additional configurations [automatic]
-  --with-pcsclite         Use pcsc-lite (default=yes)
 
 Some influential environment variables:
   CC          C compiler command
@@ -4288,7 +4287,7 @@ ia64-*-hpux*)
   ;;
 *-*-irix6*)
   # Find out which ABI we are using.
-  echo '#line 4291 "configure"' > conftest.$ac_ext
+  echo '#line 4290 "configure"' > conftest.$ac_ext
   if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -5423,7 +5422,7 @@ fi
 
 
 # Provide some information about the compiler.
-echo "$as_me:5426:" \
+echo "$as_me:5425:" \
      "checking for Fortran 77 compiler version" >&5
 ac_compiler=`set X $ac_compile; echo $2`
 { (eval echo "$as_me:$LINENO: \"$ac_compiler --version </dev/null >&5\"") >&5
@@ -6486,11 +6485,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:6489: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:6488: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:6493: \$? = $ac_status" >&5
+   echo "$as_me:6492: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -6754,11 +6753,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:6757: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:6756: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:6761: \$? = $ac_status" >&5
+   echo "$as_me:6760: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -6858,11 +6857,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:6861: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:6860: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:6865: \$? = $ac_status" >&5
+   echo "$as_me:6864: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -8327,7 +8326,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 8330 "configure"' > conftest.$ac_ext
+    echo '#line 8329 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -9224,7 +9223,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<EOF
-#line 9227 "configure"
+#line 9226 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -9324,7 +9323,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<EOF
-#line 9327 "configure"
+#line 9326 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -11665,11 +11664,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:11668: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:11667: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:11672: \$? = $ac_status" >&5
+   echo "$as_me:11671: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -11769,11 +11768,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:11772: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:11771: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:11776: \$? = $ac_status" >&5
+   echo "$as_me:11775: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -12305,7 +12304,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 12308 "configure"' > conftest.$ac_ext
+    echo '#line 12307 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -13360,11 +13359,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:13363: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:13362: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:13367: \$? = $ac_status" >&5
+   echo "$as_me:13366: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -13464,11 +13463,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:13467: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:13466: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:13471: \$? = $ac_status" >&5
+   echo "$as_me:13470: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -14913,7 +14912,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 14916 "configure"' > conftest.$ac_ext
+    echo '#line 14915 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -15688,11 +15687,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:15691: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:15690: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:15695: \$? = $ac_status" >&5
+   echo "$as_me:15694: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -15956,11 +15955,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:15959: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:15958: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:15963: \$? = $ac_status" >&5
+   echo "$as_me:15962: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -16060,11 +16059,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:16063: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:16062: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:16067: \$? = $ac_status" >&5
+   echo "$as_me:16066: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -17529,7 +17528,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 17532 "configure"' > conftest.$ac_ext
+    echo '#line 17531 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -19004,16 +19003,6 @@ fi
 LIBCKYAPPLET="\${top_builddir}/src/libckyapplet/libckyapplet.la"
 
 
-# Check whether --with-pcsclite or --without-pcsclite was given.
-if test "${with_pcsclite+set}" = set; then
-  withval="$with_pcsclite"
-
-fi;
-if test "$with_pcsclite" = "no" -o "$with_pcsclite" = "false"
-then
-  with_pcsclite=no
-else
-
 
 if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
 	if test -n "$ac_tool_prefix"; then
@@ -19177,25 +19166,23 @@ fi
 	# Put the nasty error message in config.log where it belongs
 	echo "$PCSC_PKG_ERRORS" >&5
 
-	 if test -f /usr/local/lib/pkgconfig/libpcsclite.pc ; then
-                { { echo "$as_me:$LINENO: error: use PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure" >&5
-echo "$as_me: error: use PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure" >&2;}
+	 if $UNIX -eq 1 ; then
+                { { echo "$as_me:$LINENO: error: could not find pcsc-lite libraries" >&5
+echo "$as_me: error: could not find pcsc-lite libraries" >&2;}
    { (exit 1); exit 1; }; }
           else
                 { echo "$as_me:$LINENO: WARNING: pcsc-lite not found" >&5
 echo "$as_me: WARNING: pcsc-lite not found" >&2;}
-                with_pcsclite=no
         fi
 
 elif test $pkg_failed = untried; then
-	 if test -f /usr/local/lib/pkgconfig/libpcsclite.pc ; then
-                { { echo "$as_me:$LINENO: error: use PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure" >&5
-echo "$as_me: error: use PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure" >&2;}
+	 if $UNIX -eq 1 ; then
+                { { echo "$as_me:$LINENO: error: could not find pcsc-lite libraries" >&5
+echo "$as_me: error: could not find pcsc-lite libraries" >&2;}
    { (exit 1); exit 1; }; }
           else
                 { echo "$as_me:$LINENO: WARNING: pcsc-lite not found" >&5
 echo "$as_me: WARNING: pcsc-lite not found" >&2;}
-                with_pcsclite=no
         fi
 
 else
@@ -19203,8 +19190,7 @@ else
 	PCSC_LIBS=$pkg_cv_PCSC_LIBS
         echo "$as_me:$LINENO: result: yes" >&5
 echo "${ECHO_T}yes" >&6
-	 with_pcsclite=yes
-fi
+	true
 fi
 
 # Add argument for pk11install

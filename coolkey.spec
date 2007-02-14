@@ -18,8 +18,8 @@
 # END COPYRIGHT BLOCK
 
 Name: coolkey
-Version: 1.0.1
-Release: 2
+Version: 1.1.0
+Release: 1
 Summary: CoolKey PKCS #11 module
 License: LGPL
 URL: http://directory.fedora.redhat.com/wiki/CoolKey
@@ -57,10 +57,6 @@ make %{?_smp_mflags}
 rm -rf $RPM_BUILD_ROOT
 make install DESTDIR=$RPM_BUILD_ROOT
 ln -s pkcs11/libcoolkeypk11.so $RPM_BUILD_ROOT/%{_libdir}
-rm -f $RPM_BUILD_ROOT/%{_libdir}/pkcs11/libcoolkeypk11.la
-rm -f $RPM_BUILD_ROOT/%{_libdir}/pkcs11/libcoolkeypk11.a
-rm -f $RPM_BUILD_ROOT/%{_libdir}/libckyapplet.a
-rm -f $RPM_BUILD_ROOT/%{_libdir}/libckyapplet.la
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -84,6 +80,17 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Wed Feb 14 2007 Bob Relyea <rrelyea@redhat.com> - 1.1.0
+- Clear any logout rests after a successful login.
+- Don't grab the CUID on cac's. Reseting the card causes it to
+- logout of other applications.
+- Shared memory directory needs to be writeable by all so
+- coolkey can create caches for any user. (lack of caches
+- show up in screen savers reactly slowly).
+- fix login hw race failures
+- make the coolkey token caches persist over application calls.
+- make a separate cache for each user.
+
 * Sun Jul 16 2006 Florian La Roche <laroche@redhat.com> - 1.0.1-2
 - fix excludearch line
 

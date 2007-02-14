@@ -23,6 +23,12 @@ SUBDIRS =
 
 AM_CFLAGS =
 
+EXTRA_DIST = \
+	cky_list.i \
+	dynlink_win.c \
+	dynlink_unix.c \
+	dynlink_mac.c
+
 # bleh what do I add just to get static but pic libraries?
 bogusdir = $(libdir)/bogus
 lib_LTLIBRARIES = libckyapplet.la
@@ -49,6 +55,11 @@ nobase_include_HEADERS = \
 noinst_HEADERS = \
 	cky_basei.h \
 	dynlink.h 
+
+# remove the static and libtool libraries 
+install-data-hook:
+	rm -f $(DESTDIR)$(libdir)/libckyapplet.a
+	rm -f $(DESTDIR)$(libdir)/libckyapplet.la
 
 pcdir = $(libdir)/pkgconfig
 pc_DATA = libckyapplet.pc
