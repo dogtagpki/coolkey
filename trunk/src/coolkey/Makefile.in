@@ -152,6 +152,8 @@ INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+IS_WINDOWS_FALSE = @IS_WINDOWS_FALSE@
+IS_WINDOWS_TRUE = @IS_WINDOWS_TRUE@
 LDFLAGS = @LDFLAGS@
 LIBCKYAPPLET = @LIBCKYAPPLET@
 LIBOBJS = @LIBOBJS@
@@ -235,7 +237,8 @@ target_vendor = @target_vendor@
 SUBDIRS = 
 AM_CPP_FLAGS = 
 EXTRA_DIST = coolkeypk11.def
-pkcs11dir = $(libdir)/pkcs11
+@IS_WINDOWS_FALSE@pkcs11dir = $(libdir)/pkcs11
+@IS_WINDOWS_TRUE@pkcs11dir = $(libdir)
 pkcs11_LTLIBRARIES = libcoolkeypk11.la
 libcoolkeypk11_la_SOURCES = \
 	coolkey.cpp \
@@ -720,22 +723,9 @@ clean-generic:
 install-data-hook:
 	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.a
 	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.la
-
-#MODULE = coolkeypk11
-#REQUIRES = ckyapplet zlib
-#USE_STATIC_RTL=1
-
-#BASE_LIBRARY_NAME = coolkeypk11
-#LIBRARY_NAME = $(BASE_LIBRARY_NAME)
-#MAPFILE = $(OBJDIR)/coolkeypk11.def
-
-#DEFINES += -DSHLIB_SUFFIX=\"$(DLL_SUFFIX)\" -DSHLIB_PREFIX=\"$(DLL_PREFIX)\" \
-# -DPKCS11_LIB_NAME=\"$(notdir $(SHARED_LIBRARY))\"
-
-#DEFINES += -DNSS_HIDE_NONSTANDARD_OBJECTS=1
-
-#pcdir = $(libdir)/pkgconfig
-#pc_DATA = libcoolkey.pc
+@IS_WINDOWS_TRUE@	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.lib
+@IS_WINDOWS_TRUE@	mv $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.dll $(DESTDIR)$(pkcs11dir)/coolkeypk11.dll
+@IS_WINDOWS_TRUE@	cp $(ZLIB_LIB)/zlib1.dll $(DESTDIR)/$(libdir)/zlib1.dll
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

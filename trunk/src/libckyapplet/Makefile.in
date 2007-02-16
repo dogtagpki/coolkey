@@ -151,6 +151,8 @@ INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+IS_WINDOWS_FALSE = @IS_WINDOWS_FALSE@
+IS_WINDOWS_TRUE = @IS_WINDOWS_TRUE@
 LDFLAGS = @LDFLAGS@
 LIBCKYAPPLET = @LIBCKYAPPLET@
 LIBOBJS = @LIBOBJS@
@@ -264,8 +266,8 @@ noinst_HEADERS = \
 	cky_basei.h \
 	dynlink.h 
 
-pcdir = $(libdir)/pkgconfig
-pc_DATA = libckyapplet.pc
+@IS_WINDOWS_FALSE@pcdir = $(libdir)/pkgconfig
+@IS_WINDOWS_FALSE@pc_DATA = libckyapplet.pc
 all: all-recursive
 
 .SUFFIXES:
@@ -729,6 +731,7 @@ uninstall-info: uninstall-info-recursive
 install-data-hook:
 	rm -f $(DESTDIR)$(libdir)/libckyapplet.a
 	rm -f $(DESTDIR)$(libdir)/libckyapplet.la
+@IS_WINDOWS_TRUE@	rm -f $(DESTDIR)$(libdir)/libckyapplet.lib
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
