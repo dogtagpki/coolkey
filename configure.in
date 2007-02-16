@@ -138,6 +138,7 @@ AC_SUBST(PCSC_LIBS)
 AC_SUBST(SCARD_LIB_NAME)
 AM_CONDITIONAL(HAVE_PCSC, test x$with_pcsclite = xyes)
 AM_CONDITIONAL(BUILD_PK11INSTALL, test x$enable_pk11install = xyes)
+AM_CONDITIONAL(IS_WINDOWS, test $WINDOWS -eq 1)
 
 AC_DEFINE(DEBUG, 1, [Define to 1 if you want to include debugging code.])
 # Checks for header files.
