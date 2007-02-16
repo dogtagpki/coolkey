@@ -21,7 +21,7 @@
 
 SUBDIRS = 
 AM_CPP_FLAGS =
-EXTRA_DIST = coolkeypk11.def
+EXTRA_DIST = coolkeypk11.def coolkeypk11.rc
 if IS_WINDOWS
 pkcs11dir = $(libdir)
 else
