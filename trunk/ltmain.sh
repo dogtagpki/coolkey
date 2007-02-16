@@ -5367,7 +5367,7 @@ relink_command=\"$relink_command\""
 	test "X$dir" = "X$file/" && dir=
 	dir="$dir$objdir"
 
-	if test -n "$relink_command"; then
+	if test -n "$relink_command" -a "$version_type" != "windows" ; then
 	  # Determine the prefix the user has applied to our future dir.
 	  inst_prefix_dir=`$echo "$destdir" | $SED "s%$libdir\$%%"`
 
@@ -5406,7 +5406,7 @@ relink_command=\"$relink_command\""
 	  shift
 
 	  srcname="$realname"
-	  test -n "$relink_command" && srcname="$realname"T
+	  test -n "$relink_command" -a "$version_type" != "windows" && srcname="$realname"T
 
 	  # Install the shared library and build the symlinks.
 	  $show "$install_prog $dir/$srcname $destdir/$realname"

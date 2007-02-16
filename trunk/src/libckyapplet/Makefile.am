@@ -60,6 +60,11 @@ noinst_HEADERS = \
 install-data-hook:
 	rm -f $(DESTDIR)$(libdir)/libckyapplet.a
 	rm -f $(DESTDIR)$(libdir)/libckyapplet.la
+if IS_WINDOWS
+	rm -f $(DESTDIR)$(libdir)/libckyapplet.lib
+endif
 
+if !IS_WINDOWS
 pcdir = $(libdir)/pkgconfig
 pc_DATA = libckyapplet.pc
+endif
