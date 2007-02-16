@@ -534,6 +534,8 @@ Slot::connectToToken()
     OSTime time = OSTimeNow();
 
     mCoolkey = 0;
+    tokenFWVersion.major = 0;
+    tokenFWVersion.minor = 0;
 
     // try to connect to the card
     if( ! CKYCardConnection_IsConnected(conn) ) {
