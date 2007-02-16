@@ -27,7 +27,7 @@ endif
 
 ACLOCAL_AMFLAGS = -I m4
 
-EXTRA_DIST =
+EXTRA_DIST = cookey.spec LICENSE
 
 DISTCLEANFILES = 
 
