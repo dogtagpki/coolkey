@@ -22,7 +22,11 @@
 SUBDIRS = 
 AM_CPP_FLAGS =
 EXTRA_DIST = coolkeypk11.def
+if IS_WINDOWS
+pkcs11dir = $(libdir)
+else
 pkcs11dir = $(libdir)/pkcs11
+endif
 pkcs11_LTLIBRARIES = libcoolkeypk11.la
 
 libcoolkeypk11_la_SOURCES = \
@@ -69,20 +73,10 @@ clean-generic:
 install-data-hook:
 	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.a
 	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.la
+if IS_WINDOWS
+	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.lib
+	mv $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.dll $(DESTDIR)$(pkcs11dir)/coolkeypk11.dll
+	cp $(ZLIB_LIB)/zlib1.dll $(DESTDIR)/$(libdir)/zlib1.dll
+endif
 
 
-#MODULE = coolkeypk11
-#REQUIRES = ckyapplet zlib
-#USE_STATIC_RTL=1
-
-#BASE_LIBRARY_NAME = coolkeypk11
-#LIBRARY_NAME = $(BASE_LIBRARY_NAME)
-#MAPFILE = $(OBJDIR)/coolkeypk11.def
-
-#DEFINES += -DSHLIB_SUFFIX=\"$(DLL_SUFFIX)\" -DSHLIB_PREFIX=\"$(DLL_PREFIX)\" \
-# -DPKCS11_LIB_NAME=\"$(notdir $(SHARED_LIBRARY))\"
-
-#DEFINES += -DNSS_HIDE_NONSTANDARD_OBJECTS=1
-
-#pcdir = $(libdir)/pkgconfig
-#pc_DATA = libcoolkey.pc

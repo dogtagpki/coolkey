@@ -65,6 +65,11 @@ case "$host" in
 	CC=cl
 	CXX=cl 
 	CXXFLAGS="$CXXFLAGS /EHsc"
+	#
+	# Sigh, prevents us from overriding it with --libdir= in the config 
+	* line, but we can still override it in the make line.
+	#
+	libdir=`cygpath ${WINDIR}/system32`
 	;;
 *-*-darwin*)
   	AC_MSG_RESULT([MAC])
