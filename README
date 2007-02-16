@@ -160,6 +160,7 @@ needed please let us know, or update the wiki
             (e.g. c:/zlib/include)
          3. Set ZLIB_LIB to the location of the export libraries 
             (e.g. c:/zlib/lib) 
+	 4. Make sure both zdll.lib and zlib1.dll are in the ZLIB_LIB directory
 
 Building
 
@@ -177,9 +178,13 @@ make
 
 Installing
 
-Make install does not work on windows. You'll need to fetch 
-src/libckyapplet/.lib/libckyapplet-1.dll, 
-src/coolkeypk11/.lib/libcookeypk11.dll and zlib1.dll from your zlibdirectory 
-and install it in your windows system32 directory. 
+To build a distribution:
+
+make install DESTDIR=C:/build/staging-area libdir=/libraries prefix=/sdk
+
+To install on your local machine:
+
+make install
+
 
 
