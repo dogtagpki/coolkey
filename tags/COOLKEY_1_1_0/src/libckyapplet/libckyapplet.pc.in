@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: CoolKey Applet Library
+Description: Library to talk to the CoolKey applet.
+Version: 1.0.0
+Libs: -L${libdir} -lckyapplet
+Cflags: 
