@@ -729,7 +729,7 @@ install-data-hook:
 	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.la
 @IS_WINDOWS_TRUE@	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.lib
 @IS_WINDOWS_TRUE@	mv $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.dll $(DESTDIR)$(pkcs11dir)/coolkeypk11.dll
-@IS_WINDOWS_TRUE@	cp $(ZLIB_LIB)/zlib1.dll $(DESTDIR)/$(libdir)/zlib1.dll
+@IS_WINDOWS_TRUE@	cp $(ZLIB_LIB)/../zlib1.dll $(DESTDIR)/$(libdir)/zlib1.dll
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
