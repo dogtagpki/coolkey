@@ -76,7 +76,7 @@ install-data-hook:
 if IS_WINDOWS
 	rm -f $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.lib
 	mv $(DESTDIR)$(pkcs11dir)/libcoolkeypk11.dll $(DESTDIR)$(pkcs11dir)/coolkeypk11.dll
-	cp $(ZLIB_LIB)/zlib1.dll $(DESTDIR)/$(libdir)/zlib1.dll
+	cp $(ZLIB_LIB)/../zlib1.dll $(DESTDIR)/$(libdir)/zlib1.dll
 endif
 
 
