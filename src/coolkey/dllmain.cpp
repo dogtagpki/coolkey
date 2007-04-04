@@ -20,6 +20,7 @@
 #ifdef WIN32
 
 #include <windows.h>
+#include "mypkcs11.h"
 
 BOOL APIENTRY DllMain( HANDLE hModule,
                        DWORD  ul_reason_for_call,
@@ -35,6 +36,7 @@ BOOL APIENTRY DllMain( HANDLE hModule,
         case DLL_THREAD_DETACH:
             break;
         case DLL_PROCESS_DETACH:
+            C_Finalize(0);
             break;
     }
     return TRUE;
