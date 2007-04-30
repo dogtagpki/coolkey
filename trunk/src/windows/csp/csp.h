@@ -87,6 +87,7 @@ bool GetExtKeyUsageFromCert(std::vector<std::string>* ext, const BinStr& cert);
 bool GetModulusFromCert(Session* context, BinStr* modulus, BinStr* exponent, const BinStr& cert);
 void HexIfBin(BinStr* str);
 bool InitP11();
+bool IsCACert(const BinStr& cert);
 void Reverse(BinStr* buf);
 void Reverse(LPBYTE buf, size_t len);
 std::string StringifyAquireFlags(DWORD param);

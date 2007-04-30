@@ -36,7 +36,7 @@ extern HINSTANCE g_hModule;
 	"SOFTWARE\\Microsoft\\Cryptography\\Defaults\\Provider"
 // Windows key values
 #define TYPE_KEY		"Type"
-#define IMAGE_KEY		"ImagePath"
+#define IMAGE_KEY		"Image Path"
 #define SIG_KEY			"Signature"
 
 // CSP specific key values
@@ -44,7 +44,7 @@ extern HINSTANCE g_hModule;
 #define KEYGEN_KEY		"KeyGenHack"
 #define PIN_KEY			"PIN"
 #define MODULE_KEY		"PKCS11Module"
-#define DEFAULT_PKCS11_MODULE	"coolkey.dll"
+#define DEFAULT_PKCS11_MODULE	"coolkeypk11.dll"
 #define DEFAULT_PIN		"1234"
 
 

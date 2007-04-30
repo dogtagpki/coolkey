@@ -26,6 +26,7 @@
 ******************************************************************/
 
 #include "csp.h"
+#include "cspres.h"
 #include "State.h"
 #include <winscard.h>
 
@@ -34,7 +35,8 @@ using namespace std;
 namespace MCSP {
 
 State::State()
-   : init_(false), logging_(false), logFilename_("C:\\CSPDEBUG.log"), slot_(0), keyGenHack_(false), pkcs11dllname_("PKCS11.dll")
+   : init_(false), logging_(false), logFilename_("C:\\CSPDEBUG.log"), slot_(0), keyGenHack_(false), pkcs11dllname_("PKCS11.dll"),
+     p11_(CK_INVALID_HANDLE)
 {
    lock_ = ::CreateMutex(NULL, FALSE, NULL); 
 
@@ -121,9 +123,6 @@ void State::removeSession(Session* session)
    lock();
    sessions_.erase(session); 
    delete session; 
-
-   if (sessions_.empty()) 
-      shutdown();
    unlock();
 }
 
@@ -160,6 +159,43 @@ Key* State::checkValidKey(HCRYPTKEY hKey)
    return reinterpret_cast<Key*>(hKey);
 }
 
+void State::login(Session* session)
+{
+
+   int pin_size;
+   BinStr userPIN;
+   userPIN.resize(256);
+   if (!(pin_size = CSPDisplayPinDialog((char*)&userPIN[0], userPIN.size())))
+      ThrowMsg(SCARD_W_CANCELLED_BY_USER, "PIN dialog cancelled");
+
+   userPIN.resize(pin_size);
+
+   CK_RV ck_rv = g_state.p11->C_Login(session->p11_, CKU_USER, 
+                  (CK_UTF8CHAR*)&userPIN[0], (CK_ULONG)userPIN.size());
+
+   if (ck_rv == CKR_OK)
+   {
+      if (p11_ != CK_INVALID_HANDLE)
+      {
+         LOG("Existing invalid session must be destroyed. \n");
+
+         g_state.p11->C_CloseSession(p11_);
+         p11_ = CK_INVALID_HANDLE;
+      }
+      ck_rv = g_state.p11->C_OpenSession(g_state.slot(), CKF_RW_SESSION | CKF_SERIAL_SESSION, 0, 0, &p11_);
+   }
+
+   if (ck_rv != CKR_OK)
+   {
+      DisplayError(session, "Error during PIN verification");
+      Throw(NTE_FAIL);
+   }
+   else
+      LOG("PIN Verification Successful\n");
+
+}
+
+
 bool State::shutdown()
 {
    if (init())
@@ -185,6 +221,12 @@ bool State::shutdown()
          }
 
          keys_.clear();
+      }
+
+      if (p11_ != CK_INVALID_HANDLE)
+      {
+         p11->C_CloseSession(p11_);
+         p11_ = CK_INVALID_HANDLE;
       }
 
       g_state.p11->C_Finalize(0);

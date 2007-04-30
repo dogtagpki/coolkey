@@ -99,9 +99,11 @@ CPAcquireContext(
       BinStr container_name, reader_name;
       Session::parseFQCN(szContainer, &container_name, &reader_name);
 
+      // Missing output is only allowed for DELETEKEYSET
       if (!phProv && !(dwFlags & CRYPT_DELETEKEYSET))
          ThrowMsg(NTE_FAIL, "Can't return context, phProv is invalid");
 
+      // Do one-time initialization of state
       if (g_state.init())
          LOG("CSP already initialized\n");
       else
@@ -177,6 +179,7 @@ CPAcquireContext(
          }
          else
          {
+#ifdef LOGIN_FOR_SESSION
             int pin_size;
             BinStr userPIN;
             userPIN.resize(256);
@@ -195,6 +198,8 @@ CPAcquireContext(
             }
             else
                LOG("PIN Verification Successful\n");
+#endif /* LOGIN_FOR_SESSION */
+            g_state.login(context);
          }
       }
 

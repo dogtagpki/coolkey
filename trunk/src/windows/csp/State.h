@@ -45,6 +45,7 @@ private:
    std::set<Session*> sessions_;
    std::set<Key*> keys_;
    std::string pkcs11dllname_;
+   CK_SESSION_HANDLE p11_;
 
 public:
    CK_FUNCTION_LIST_PTR p11;
@@ -99,6 +100,9 @@ public:
 
    bool keyExists(Key* key);
    Key* checkValidKey(HCRYPTKEY hKey);
+
+   void login(Session* session);
+
    bool shutdown();
 
    void lock()
