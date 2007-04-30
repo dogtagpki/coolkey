@@ -648,6 +648,8 @@ bool FindDefaultCert(Session* context, CK_OBJECT_HANDLE* phCert, BinStr* contain
    CK_OBJECT_CLASS objClass = CKO_CERTIFICATE;
    CK_ATTRIBUTE attrib = { CKA_CLASS, &objClass, sizeof(objClass) };
 
+   LOG("FindDefaultCert. \n");
+
    // start object search for all certificates
    if (g_state.p11->C_FindObjectsInit(context->p11_, &attrib, 1) != CKR_OK)
    {
@@ -669,6 +671,8 @@ bool FindDefaultCert(Session* context, CK_OBJECT_HANDLE* phCert, BinStr* contain
       CK_ULONG ulNumFound = 1;
       while (ulNumFound > 0)
       {
+         LOG("FindDefaultCert. Top of while loop, through certs. \n");
+
          CK_OBJECT_HANDLE hCert;
          if (g_state.p11->C_FindObjects(context->p11_, &hCert, 1, &ulNumFound) != CKR_OK)
             ThrowMsg(0, "C_FindObjects failed\n");
@@ -676,6 +680,7 @@ bool FindDefaultCert(Session* context, CK_OBJECT_HANDLE* phCert, BinStr* contain
          if (ulNumFound == 0)
             break;
 
+         LOG("FindDefaultCert. Num Certs found %d hcert %d. \n",ulNumFound,hCert);
          // First we want the CKA_ID and CKA_VALUE lengths
          attrib[0].pValue = 0;
          attrib[1].pValue = 0;
@@ -691,6 +696,10 @@ bool FindDefaultCert(Session* context, CK_OBJECT_HANDLE* phCert, BinStr* contain
          if (g_state.p11->C_GetAttributeValue(context->p11_, hCert, attrib, sizeof(attrib)/sizeof(CK_ATTRIBUTE)) != CKR_OK)
             continue;
 
+
+         if (IsCACert(cert))
+            continue;
+
          vector<string> ext;
          GetExtKeyUsageFromCert(&ext, cert);
 
@@ -703,6 +712,7 @@ bool FindDefaultCert(Session* context, CK_OBJECT_HANDLE* phCert, BinStr* contain
                haveLogonCert = true;
                container->swap(ckaid);
                *phCert = hCert;
+               LOG("FindDefaultCert. Setting default cert because proper extension found. \n");
                break;
             }
          }
@@ -710,6 +720,7 @@ bool FindDefaultCert(Session* context, CK_OBJECT_HANDLE* phCert, BinStr* contain
          if (i >= ext.size() && !haveLogonCert)
          {
             container->swap(ckaid);
+            LOG("FindDefaultCert Setting default cert because not a login cert. %d \n",hCert);
             *phCert = hCert;
          }
       }
@@ -1008,6 +1019,72 @@ bool GetExtKeyUsageFromCert(vector<string>* ext, const BinStr& cert)
    if (extusage)
       LocalFree(extusage);
 
+   return rv;
+}
+
+bool IsCACert(const BinStr& cert)
+{
+   bool rv = false;
+   DWORD cbInfo= 0;
+   
+   PCCERT_CONTEXT certContext = 0;
+
+   LOG("IsCACert cert %p size %d \n", &cert,cert.size());
+
+   cbInfo = sizeof(CERT_BASIC_CONSTRAINTS2_INFO);
+
+   PCERT_BASIC_CONSTRAINTS2_INFO pInfo = 
+      (PCERT_BASIC_CONSTRAINTS2_INFO) LocalAlloc(LPTR,cbInfo);
+
+   if (!pInfo)
+      return rv;
+
+   try
+   {
+      certContext = 
+         CertCreateCertificateContext(X509_ASN_ENCODING  | PKCS_7_ASN_ENCODING,
+            &cert[0], cert.size());
+
+      if (certContext == 0)
+         ThrowMsg(0, "CertCreateCertificateContext failed");
+
+     
+      PCERT_EXTENSION pBC = CertFindExtension(szOID_BASIC_CONSTRAINTS2,
+         certContext->pCertInfo->cExtension, certContext->pCertInfo->rgExtension);
+
+      if (!pBC)
+         ThrowMsg(0,"No BASIC_CONSTRAINT extension.");
+
+      DWORD cbDecoded = cbInfo;
+     
+      BOOL dResult = CryptDecodeObject(X509_ASN_ENCODING |PKCS_7_ASN_ENCODING  ,         szOID_BASIC_CONSTRAINTS2,
+         pBC->Value.pbData, pBC->Value.cbData, 0, pInfo,&cbDecoded);
+
+      if (!dResult)
+      {
+
+         DWORD error = GetLastError();
+           		  
+         LOG("IsCACert CryptDecodeObject failed! error 0x%lx \n",error);
+
+         ThrowMsg(0,"CryptDecodeObject failed");
+      }
+
+      rv = (bool) pInfo->fCA; 
+
+      LOG("IsCACert returning  fCA %ld fPathLenConstraint %ld dwPathLenConstraint %lu .\n",pInfo->fCA,pInfo->fPathLenConstraint,pInfo->dwPathLenConstraint);
+   }
+   catch (Error&)
+   {
+      rv = false;
+   }
+
+   if (certContext)
+      CertFreeCertificateContext(certContext);
+
+   if (pInfo)
+      LocalFree(pInfo);
+   
    return rv;
 }
 
