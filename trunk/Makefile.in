@@ -220,7 +220,7 @@ target_os = @target_os@
 target_vendor = @target_vendor@
 SUBDIRS = src/libckyapplet src/coolkey $(am__append_1)
 ACLOCAL_AMFLAGS = -I m4
-EXTRA_DIST = cookey.spec LICENSE
+EXTRA_DIST = coolkey.spec LICENSE
 DISTCLEANFILES = 
 AUTOMAKE_OPTIONS = foreign
 all: config.h
