@@ -564,15 +564,10 @@ Slot::connectToToken()
         state = CARD_PRESENT;
     }
 
-    if ( CKYBuffer_DataIsEqual(&cardATR, ATR, sizeof (ATR)) || 
-		CKYBuffer_DataIsEqual(&cardATR, ATR1, sizeof(ATR1)) ||
-		CKYBuffer_DataIsEqual(&cardATR, ATR2, sizeof(ATR2)) ) {
-
-        if (Params::hasParam("noAppletOK"))
-        {      
-            state |=  APPLET_SELECTABLE;
-	    mCoolkey = 1;
-        }
+    if (Params::hasParam("noAppletOK"))
+    {      
+        state |=  APPLET_SELECTABLE;
+	mCoolkey = 1;
     }
 
     /* support CAC card. identify the card based on applets, not the ATRS */
