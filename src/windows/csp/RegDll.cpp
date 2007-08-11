@@ -140,7 +140,7 @@ getSignature(const char *cspLibrary, unsigned char **returnedSig,
 	return ERROR_NOT_ENOUGH_MEMORY;
     }
 
-    fd = open (sigFile, O_RDONLY);
+    fd = open (sigFile, O_RDONLY | O_BINARY);
     free(sigFile);
     if (fd < 0) {
 	return GetLastError();
