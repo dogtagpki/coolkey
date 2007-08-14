@@ -185,12 +185,20 @@ void OSSleep(int time)
 #define MAP_INHERIT 0
 #endif
 
+#ifndef BASEPATH
+#ifdef MAC
+#define BASEPATH "/var"
+#else
+#define BASEPATH "/var/cache"
+#endif
+#endif
+
 #ifdef FULL_CLEANUP
 #define RESERVED_OFFSET 256
-#define MEMSEGPATH "/tmp/.pk11ipc"
+#define MEMSEGPATH BASEPATH"/pk11ipc"
 #else 
 #define RESERVED_OFFSET 0
-#define MEMSEGPATH "/tmp/.pk11ipc1"
+#define MEMSEGPATH BASEPATH"/pk11ipc1"
 #endif
 
 struct SHMemData {
@@ -208,11 +216,6 @@ SHMemData::~SHMemData() {
 #ifdef FULL_CLEANUP
 	flock(fd,LOCK_EX);
 	unsigned long ref = --(*(unsigned long *)addr); 
-#ifdef notdef
-	if (ref == 0) {
-	    unlink(path);
-	}
-#endif
 	flock(fd, LOCK_UN);
 #endif
 	munmap(addr,size+RESERVED_OFFSET);
@@ -248,7 +251,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	return NULL;
     }
     int mask = umask(0);
-    int ret = mkdir (MEMSEGPATH, 0777);
+    int ret = mkdir (MEMSEGPATH, 1777);
     umask(mask);
     if ((ret == -1) && (errno != EEXIST)) {
 	delete shmemData;
@@ -264,18 +267,15 @@ SHMem::initSegment(const char *name, int size, bool &init)
     shmemData->path[sizeof(MEMSEGPATH)-1] = '/';
     strcpy(&shmemData->path[sizeof(MEMSEGPATH)],name);
 
-    int mode = 0777;
-    if (strcmp(name,"token_names") != 0) {
-	/* each user gets his own uid array */
-    	sprintf(uid_str, "-%u",getuid());
-    	strcat(shmemData->path,uid_str);
-	mode = 0700;
-    } 
+    sprintf(uid_str, "-%u",getuid());
+    strcat(shmemData->path,uid_str);
+    int mode = 0600;
+
     shmemData->fd = open(shmemData->path, 
 		O_CREAT|O_RDWR|O_EXCL|O_APPEND|O_EXLOCK, mode);
-    if (shmemData->fd  < 0) {
+    if ((shmemData->fd  < 0) && errno == EEXIST) {
 	needInit = false;
-	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK, mode);
+	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK|O_NOFOLLOW, mode);
     }  else {
 	char *buf;
 	int len = size+RESERVED_OFFSET;
