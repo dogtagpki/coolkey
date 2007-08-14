@@ -18,7 +18,7 @@
 # END COPYRIGHT BLOCK
 
 Name: coolkey
-Version: 1.1.0
+Version: 1.1.1
 Release: 1
 Summary: CoolKey PKCS #11 module
 License: LGPL
@@ -57,6 +57,8 @@ make %{?_smp_mflags}
 rm -rf $RPM_BUILD_ROOT
 make install DESTDIR=$RPM_BUILD_ROOT
 ln -s pkcs11/libcoolkeypk11.so $RPM_BUILD_ROOT/%{_libdir}
+mkdir -p $RPM_BUILD_ROOT/var/cache/pk11ipc1
+
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -72,6 +74,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkcs11/libcoolkeypk11.so
 %{_libdir}/libckyapplet.so.1
 %{_libdir}/libckyapplet.so.1.0.0
+%attr(1777, root,root) /var/cache/pk11ipc1
 
 %files devel
 %{_libdir}/libckyapplet.so
@@ -80,6 +83,12 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Tue Aug 14 2007 Bob Relyea <rrelyea@redhat.com> - 1.1.1
+- Move cache to /var/cache. Make the package own it's
+  cache directory.
+- Allow formatting applications like ESC to open access
+  tokens which may not have a recognized ATR.
+
 * Wed Feb 14 2007 Bob Relyea <rrelyea@redhat.com> - 1.1.0
 - Clear any logout rests after a successful login.
 - Don't grab the CUID on cac's. Reseting the card causes it to
