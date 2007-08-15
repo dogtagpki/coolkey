@@ -195,10 +195,10 @@ void OSSleep(int time)
 
 #ifdef FULL_CLEANUP
 #define RESERVED_OFFSET 256
-#define MEMSEGPATH BASEPATH"/pk11ipc"
+#define MEMSEGPATH BASEPATH"/coolkey-lock"
 #else 
 #define RESERVED_OFFSET 0
-#define MEMSEGPATH BASEPATH"/pk11ipc1"
+#define MEMSEGPATH BASEPATH"/coolkey"
 #endif
 
 struct SHMemData {
@@ -273,10 +273,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
 
     shmemData->fd = open(shmemData->path, 
 		O_CREAT|O_RDWR|O_EXCL|O_APPEND|O_EXLOCK, mode);
-    if ((shmemData->fd  < 0) && errno == EEXIST) {
-	needInit = false;
-	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK|O_NOFOLLOW, mode);
-    }  else {
+    if (shmemData->fd >= 0) {
 	char *buf;
 	int len = size+RESERVED_OFFSET;
 
@@ -291,6 +288,9 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	}
 	write(shmemData->fd,buf,len);
 	free(buf);
+    } else if (errno == EEXIST) {
+	needInit = false;
+	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK|O_NOFOLLOW, mode);
     }
     if (shmemData->fd < 0) {
 	delete shmemData;
