@@ -205,6 +205,29 @@ SlotList::readerExists(const char *readerName, unsigned int *hint)
     return FALSE;
 }
 
+bool
+SlotList::readerNameExistsInList(const char *readerName,CKYReaderNameList *readerNameList)
+{
+    if( !readerName || !readerNameList) {
+        return FALSE;
+    }
+
+    int i = 0;
+    int readerNameCnt = CKYReaderNameList_GetCount(*readerNameList);
+
+    const char *curReaderName = NULL;
+    for(i=0; i < readerNameCnt; i++) {
+        curReaderName = CKYReaderNameList_GetValue(*readerNameList,i);
+
+        if(!strcmp(curReaderName,readerName)) {
+            return TRUE;
+        }
+        
+    }
+    
+    return FALSE;
+}
+
 /*
  * you need to hold the ReaderList Lock before you can update the ReaderList
  */
@@ -257,6 +280,27 @@ SlotList::updateReaderList()
      * new readers is to see if there are any readers on the list that we
      * don't recognize.
      */
+
+    /* first though, let's check to see if any previously removed readers have 
+     * come back from the dead. If the ignored bit has been set, we do not need
+     * it any more.
+    */
+
+    const char *curReaderName = NULL;
+    unsigned long knownState = 0;
+    for(int ri = 0 ; ri < numReaders; ri ++)  {
+       
+        knownState = CKYReader_GetKnownState(&readerStates[ri]);
+        if( !(knownState & SCARD_STATE_IGNORE))  {
+            continue;
+        }
+ 
+        curReaderName =  CKYReader_GetReaderName(&readerStates[ri]); 
+        if(readerNameExistsInList(curReaderName,&readerNames)) {
+            CKYReader_SetKnownState(&readerStates[ri], knownState & ~SCARD_STATE_IGNORE); 
+                 
+        }
+    } 
 
     const char *newReadersData[MAX_READER_DELTA];
     const char **newReaders = &newReadersData[0];
@@ -539,13 +583,31 @@ Slot::connectToToken()
 
     // try to connect to the card
     if( ! CKYCardConnection_IsConnected(conn) ) {
-        status = CKYCardConnection_Connect(conn, readerName);
-        if( status != CKYSUCCESS ) {
-            log->log("Unable to connect to token\n");
+        int i = 0;
+    //for cranky readers try again a few more times
+        while( i++ < 5 && status != CKYSUCCESS )
+        {
+            status = CKYCardConnection_Connect(conn, readerName);
+            if( status != CKYSUCCESS && 
+                CKYCardConnection_GetLastError(conn) == SCARD_E_PROTO_MISMATCH ) 
+            {
+                log->log("Unable to connect to token status %d ConnGetGetLastError %x .\n",status,CKYCardConnection_GetLastError(conn));
+
+            }
+            else
+            {
+                break;
+            }
+            OSSleep(100000);
+        }
+
+        if( status != CKYSUCCESS)
+        {
             state = UNKNOWN;
             return;
         }
     }
+
     log->log("time connect: Connect Time %d ms\n", OSTimeNow() - time);
     if (!slotInfoFound) {
 	readSlotInfo();
@@ -1074,6 +1136,7 @@ SlotList::waitForSlotEvent(CK_FLAGS flag, CK_SLOT_ID_PTR slotp, CK_VOID_PTR res)
 	    }
 	    throw;
 	}
+
 	if (myNumReaders != numReaders) {
 	    if (myReaderStates) {
 		delete [] myReaderStates;
@@ -1100,6 +1163,7 @@ SlotList::waitForSlotEvent(CK_FLAGS flag, CK_SLOT_ID_PTR slotp, CK_VOID_PTR res)
 		}
 	    }
 	}
+
         if (found || (flag == CKF_DONT_BLOCK) || shuttingDown) {
             break;
         }
