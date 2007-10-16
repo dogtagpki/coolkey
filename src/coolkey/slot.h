@@ -527,6 +527,8 @@ class SlotList {
      * has called 'C_GetSlotList' with a NULL parameter */
     void updateReaderList();
 
+     /* see if a reader name exists in a caller provided reader name list. */
+    bool readerNameExistsInList(const char *readerName,CKYReaderNameList *readerNameList );
     bool readerExists(const char *readerName, unsigned int *hint = 0);
   public:
     SlotList(Log *log);
