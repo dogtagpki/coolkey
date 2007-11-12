@@ -123,8 +123,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 3;
-    private static final short BUILDID_MAJOR = (short) 0x4577;
-    private static final short BUILDID_MINOR = (short) 0x09c8;
+    private static final short BUILDID_MAJOR = (short) 0x4734;
+    private static final short BUILDID_MINOR = (short) 0xb002;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -504,47 +504,210 @@ public class CardEdge extends Applet
 	//
 	// initialize the parameters to their default values
 
+        //Save offset of the instance aid length.
+        byte remainingLength = bLength;
+
 	short mem_size = (short)6000;
 	create_object_ACL = RA_ACL;
 	create_key_ACL = RA_ACL;
 	create_pin_ACL = RA_ACL;
 	enable_ACL_change = 0; // can't change ACLs by default
 
-	// allow configuration of the mem_size, since it can't be changed
-	// on the fly.
-	if ((bArray[bOffset] & 0x80) != 0) {
-	  mem_size = (short)
-		(Util.makeShort(ZEROB,(byte)(bArray[bOffset] & 0x7e))* 100);
-	  enable_ACL_change = (byte)(bArray[bOffset] & 0x1);
-	  bOffset++;
-	  bLength--;
-	  // we can create APDU's to change the ACL's.
-	}
+
+        pins          = new OwnerPIN  [MAX_NUM_PINS];
+        keys          = new Key       [MAX_NUM_KEYS];
+        keyMate       = new byte      [MAX_NUM_KEYS];
+        keyACLs       = new byte      [MAX_NUM_KEYS * KEY_ACL_SIZE];
+        keyTries      = new byte      [MAX_NUM_KEYS];
+        keyPairs      = new KeyPair   [MAX_NUM_KEYS];
+        ciphers       = new Cipher    [MAX_NUM_KEYS];
+        signatures    = new Signature [MAX_NUM_KEYS];
+        default_nonce = new byte      [NONCE_SIZE];
+        issuerInfo    = new byte      [ISSUER_INFO_SIZE];
+
+        for (byte i = 0; i < MAX_NUM_KEYS; i++) {
+            keyTries[i] = MAX_KEY_TRIES;
+            keyMate[i]  =  -1;
+        }
+
+        Util.arrayFillNonAtomic(default_nonce, ZEROS, NONCE_SIZE, ZEROB);
+        Util.arrayFillNonAtomic(issuerInfo, ZEROS,ISSUER_INFO_SIZE, ZEROB);
+
+        byte appDataLen = 0;
+        byte issuerLen = 0;
+
+        //Attempt to parse app specific initialization data
+        //Format
+        //  n bytes- System header data, skip past to get to app data
+        //  App specific data
+        //  1 byte - Issuer Info Len
+        //  n bytes- Issuer Info Value, string of characters
+        //  1 byte - Custem memory size Len, agree upon 2
+        //  2 bytes- Custom memory size value
+        //  1 byte - Applet bit mask Len, now only handle 1, allow for more in future
+        //  n bytes- Applet bit mask value. Process 1 now.
 
 
-	mem           = new MemoryManager(mem_size);
-	om            = new ObjectManager(mem);
-	pins          = new OwnerPIN  [MAX_NUM_PINS];
-	keys          = new Key       [MAX_NUM_KEYS];
-	keyMate       = new byte      [MAX_NUM_KEYS];
-	keyACLs       = new byte      [MAX_NUM_KEYS * KEY_ACL_SIZE];
-	keyTries      = new byte      [MAX_NUM_KEYS];
-	keyPairs      = new KeyPair   [MAX_NUM_KEYS];
-	ciphers       = new Cipher    [MAX_NUM_KEYS];
-	signatures    = new Signature [MAX_NUM_KEYS];
-	default_nonce = new byte      [NONCE_SIZE];
-	issuerInfo    = new byte      [ISSUER_INFO_SIZE];
+        //Skip past the header data provided by the system 
+        
+        //Get instance AID length
 
-	for (byte i = 0; i < MAX_NUM_KEYS; i++) {
-	    keyTries[i] = MAX_KEY_TRIES;
-	    keyMate[i]  =  -1;
-	}
-	Util.arrayFillNonAtomic(default_nonce, ZEROS, NONCE_SIZE, ZEROB);
-	Util.arrayFillNonAtomic(issuerInfo, ZEROS,ISSUER_INFO_SIZE, ZEROB);
-	// copy the rest of the param date into issuerInfo.
-	if (bLength > 0) {
-	    Util.arrayCopyNonAtomic(bArray,bOffset,issuerInfo,ZEROB,bLength);
-	}
+        byte len = bArray[bOffset];
+
+        short customMemSize = 0;
+        do {
+
+            if(remainingLength <= 0)   {
+                break;
+            }
+
+            if( len >  remainingLength) {
+                break;
+            }
+
+            //Skip past the instance AID
+            //
+            bOffset+= len + 1;
+            remainingLength-= (len + 1);
+
+            if(remainingLength <= 0)   {
+                break;
+            }
+        
+            //Get app privileges length
+
+            len = bArray[bOffset];
+
+            if(len > remainingLength)   {
+                break;
+            }
+            //Skip past the app privileges
+
+            bOffset+= len + 1;
+            remainingLength-=(len + 1);
+
+            if(remainingLength <= 0)   {
+                break;
+            }
+
+            //Get length of the entire application specific data block
+
+            appDataLen = bArray[bOffset];
+
+            if( appDataLen > remainingLength)
+            {
+                break;
+            }  
+            
+            bOffset +=1;
+            remainingLength=appDataLen;
+
+            if(remainingLength <= 0)   {
+                break;
+            }
+
+            //Get the issuer info length
+
+            issuerLen  = bArray[bOffset];
+
+            if(issuerLen > remainingLength)    {
+                break;
+            }
+
+            bOffset++;
+            remainingLength--;
+            
+            if(remainingLength <= 0)   {
+               break;
+            }
+
+            //Actually copy our issuer info data
+
+            if(issuerLen != 0) {
+                if((short) issuerLen < ISSUER_INFO_SIZE) {
+                    Util.arrayCopyNonAtomic(bArray,bOffset,issuerInfo,ZEROB,issuerLen);
+                } else    {
+                    break;
+                }
+            }
+
+            //skip past the issuer data if any
+
+            bOffset+= issuerLen ;
+            remainingLength-= issuerLen;
+            if(remainingLength <= 0)   {
+                break;
+            }
+
+            //Get memory size length
+
+            byte memSizeLen= bArray[bOffset];
+
+            if(memSizeLen > remainingLength)   {
+                break;
+            }
+
+            bOffset+=1;
+            remainingLength-=1;
+            if(remainingLength <= 0)   {
+                break;
+            }
+
+            //allow configuration of the mem_size, since it can't be changed
+            //on the fly.
+            //Get memory size from  next block,assume 2 bytes 
+
+            if(memSizeLen == 2)    {
+                customMemSize = Util.makeShort(bArray[bOffset],bArray[(short) (bOffset + 1)]);
+                bOffset += 2;
+                remainingLength-=2;
+            }
+
+            //Sanity check the mem size
+
+            if(customMemSize > 0)    {
+                mem_size = (short) customMemSize ;
+            }	
+
+            if(remainingLength <= 0)   {
+                break;
+            }
+
+            //obtain the  applet bit mask to alter the behavior as needed
+            //only pay attention to first byte now.
+
+            byte appletBitMask = 0;
+            byte bitMaskLen = 0; 
+
+            bitMaskLen =  bArray[bOffset];
+
+            if(bitMaskLen > remainingLength)    {
+                break;
+            }
+ 
+            if(bitMaskLen > 0)    {
+                bOffset += 1;
+                remainingLength-=1;
+                appletBitMask = bArray[bOffset];
+            }
+
+            if(remainingLength <= 0)   {
+              break;
+            }
+
+            //The first thing in the bitmask we support is allowing the change of ACL's
+        
+            if(appletBitMask != 0)    { 
+                enable_ACL_change = (byte)(appletBitMask & 0x1);
+            }
+
+        } while(false);
+
+        //Memory Management data instantiation
+
+        mem           = new MemoryManager(mem_size);
+        om            = new ObjectManager(mem);
+
 
 	authenticated_id = 0;
 	nonce_ids = 0;
