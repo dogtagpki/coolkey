@@ -83,7 +83,7 @@ SLB_JAVA_DIR=$(SLB_DIR)/Smart Cards and Terminals/Cyberflex Access Kits/v4/
 endif
 
 ifdef windir
-SEP=";"
+SEP="\;"
 else
 SEP=":"
 endif
