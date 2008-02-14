@@ -33,6 +33,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#include <string.h>
+#include <stdlib.h>
 #endif
 
 #ifdef _WIN32

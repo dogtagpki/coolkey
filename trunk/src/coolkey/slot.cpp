@@ -25,7 +25,6 @@
 #include "PKCS11Exception.h"
 #include <winscard.h>
 #include "slot.h"
-#include <memory.h>
 #include "zlib.h"
 #include "params.h"
 
@@ -33,7 +32,6 @@
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
-using std::auto_ptr;
 
 
 #ifdef DEBUG
