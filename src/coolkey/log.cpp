@@ -18,6 +18,8 @@
  * ***** END COPYRIGHT BLOCK *****/
 
 #include <string>
+#include <string.h>
+#include <stdlib.h>
 #include "mypkcs11.h"
 #include <assert.h>
 #include <stdio.h>

@@ -21,6 +21,7 @@
 #include "PKCS11Exception.h"
 #include "object.h"
 #include <algorithm>
+#include <string.h>
 
 using std::find_if;
 
