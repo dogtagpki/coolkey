@@ -129,6 +129,7 @@ typedef struct _SCard {
     SCardGetStatusChangeFn SCardGetStatusChange;
     SCardCancelFn SCardCancel;
     SCARD_IO_REQUEST *SCARD_PCI_T0_;
+    SCARD_IO_REQUEST *SCARD_PCI_T1_;
 } SCard;
 
 #define GET_ADDRESS(library, scard, name) \
@@ -192,6 +193,12 @@ ckySCard_Init(void)
 
     status = ckyShLibrary_getAddress( library,
 	(void**) &scard->SCARD_PCI_T0_, MAKE_DLL_SYMBOL(g_rgSCardT0Pci));
+    if( status != CKYSUCCESS ) {
+        goto fail;
+    }
+
+    status = ckyShLibrary_getAddress( library,
+        (void**) &scard->SCARD_PCI_T1_, MAKE_DLL_SYMBOL(g_rgSCardT1Pci));
     if( status != CKYSUCCESS ) {
         goto fail;
     }
@@ -884,6 +891,7 @@ struct _CKYCardConnection {
     SCARDHANDLE      cardHandle;
     unsigned long    lastError;
     CKYBool           inTransaction;
+    unsigned long    protocol;
 };
 
 static void
@@ -894,6 +902,7 @@ ckyCardConnection_init(CKYCardConnection *conn, const CKYCardContext *ctx)
     conn->cardHandle = 0;
     conn->lastError = 0;
     conn->inTransaction = 0;
+    conn->protocol = SCARD_PROTOCOL_T0;
 }
 
 CKYCardConnection *
@@ -934,14 +943,13 @@ CKYCardConnection_Connect(CKYCardConnection *conn, const char *readerName)
 {
     CKYStatus ret;
     unsigned long rv;
-    unsigned long protocol;
 
     ret = CKYCardConnection_Disconnect(conn);
     if (ret != CKYSUCCESS) {
 	return ret;
     }
     rv = conn->scard->SCardConnect( conn->ctx->context, readerName,
-	SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0, &conn->cardHandle, &protocol);
+	SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &conn->cardHandle, &conn->protocol);
     if (rv != SCARD_S_SUCCESS) {
 	conn->lastError = rv;
 	return CKYSCARDERR;
@@ -978,7 +986,7 @@ ckyCardConnection_reconnectRaw(CKYCardConnection *conn, unsigned long init)
     unsigned long protocol;
 
     rv = conn->scard->SCardReconnect(conn->cardHandle,
-	SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0, init, &protocol);
+	SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1 , init, &protocol);
     if (rv != SCARD_S_SUCCESS) {
 	conn->lastError = rv;
 	return CKYSCARDERR;
@@ -1039,10 +1047,17 @@ CKYCardConnection_TransmitAPDU(CKYCardConnection *conn, CKYAPDU *apdu,
 	return ret;
     }
 
-    rv = conn->scard->SCardTransmit(conn->cardHandle, 
-	conn->scard->SCARD_PCI_T0_,
-	CKYBuffer_Data(&apdu->apduBuf), CKYBuffer_Size(&apdu->apduBuf), 
-	NULL, response->data, &response->len);
+    if( conn->protocol == SCARD_PROTOCOL_T0 ) { 
+        rv = conn->scard->SCardTransmit(conn->cardHandle, 
+            conn->scard->SCARD_PCI_T0_,
+	    CKYBuffer_Data(&apdu->apduBuf), CKYBuffer_Size(&apdu->apduBuf), 
+	    NULL, response->data, &response->len);
+    }  else  {
+        rv = conn->scard->SCardTransmit(conn->cardHandle,
+            conn->scard->SCARD_PCI_T1_,
+            CKYBuffer_Data(&apdu->apduBuf), CKYBuffer_Size(&apdu->apduBuf),
+            NULL, response->data, &response->len);
+    } 
 
     if (rv != SCARD_S_SUCCESS) {
 	conn->lastError =rv;
