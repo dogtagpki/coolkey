@@ -122,9 +122,9 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MAJOR = 1;
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
-    private static final byte VERSION_APPLET_MINOR = 3;
-    private static final short BUILDID_MAJOR = (short) 0x4734;
-    private static final short BUILDID_MINOR = (short) 0xb002;
+    private static final byte VERSION_APPLET_MINOR = 4;
+    private static final short BUILDID_MAJOR = (short) 0x4979;
+    private static final short BUILDID_MINOR = (short) 0x178d;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -484,6 +484,7 @@ public class CardEdge extends Applet
     private byte[]        keyTries;       // persistent
     private byte[]        issuerInfo;     // persistent
 
+
     /**
      * Instance variable array declarations - TRANSIENT
      * Allocated by JCSystem.makeTransientXxxxxArray calls below.
@@ -524,6 +525,7 @@ public class CardEdge extends Applet
         signatures    = new Signature [MAX_NUM_KEYS];
         default_nonce = new byte      [NONCE_SIZE];
         issuerInfo    = new byte      [ISSUER_INFO_SIZE];
+        iobuf         = new byte      [IOBUF_ALLOC];
 
         for (byte i = 0; i < MAX_NUM_KEYS; i++) {
             keyTries[i] = MAX_KEY_TRIES;
@@ -2792,8 +2794,8 @@ public class CardEdge extends Applet
 
     private void initTransient()
     {
-	iobuf = JCSystem.makeTransientByteArray(IOBUF_ALLOC,
-		    JCSystem.CLEAR_ON_DESELECT);
+	//iobuf = JCSystem.makeTransientByteArray(IOBUF_ALLOC,
+        //		    JCSystem.CLEAR_ON_DESELECT);
 	ciph_dirs = JCSystem.makeTransientByteArray(MAX_NUM_KEYS,
 		    JCSystem.CLEAR_ON_DESELECT);
 	//
