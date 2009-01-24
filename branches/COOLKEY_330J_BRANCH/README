@@ -1,0 +1,190 @@
+How to build on various platforms.
+A more up to date version of this may be found at 
+http://directory.fedora.redhat.com/wiki/BuildCoolKey
+
+
+Linux/Unix
+---------------------------------------------------------------------------
+Prerequisites
+
+You will need the following packages installed (or equivalent for your OS):
+
+    * pcsc-lite-devel
+    * xlib-devel
+    * glibc
+    * gcc
+    * autoconf 
+
+Building
+
+In the root directory run the following commands:
+
+autoconf
+./configure
+make
+
+If you need to modify the Makefiles, automake 1.9.6 was used. Makefile.am is 
+included in the source.
+
+Installing
+
+In the root directory run:
+
+make install
+
+or
+
+make install DEST=/my/destination/tree
+
+
+
+Mac OS X
+---------------------------------------------------------------------------
+
+CoolKey can be compiled as a universal binary on the Mac.
+
+Prerequisites
+
+    * Intel or PPC Mac
+    * OS X Tiger
+    * Version 2.59 of autoconf
+    * XCode 2.2 and later
+    * Make sure the framework "/Developer/SDKs/MacOSX10.4u.sdk" is present 
+
+Building
+
+   1. checkout coolkey source
+   2. proceed to the coolkey directory
+   3. Type the following: 
+
+autoconf
+./configure --disable-dependency-tracking
+make
+
+If the autoconf step fails, an outdated version of autoconf may be installed. 
+Perform "autoconf --version" to make sure 2.59 is the version present.
+
+As of right now, the above will build CoolKey dynamic libraries as only the 
+native binary of the build machine. For instance, performing this build on an 
+Intel Mac will build universal object files but leave the dynamic libraries as 
+Intel only. Until this problem can be resolved, the following can be done to 
+complete an actual universal binary build of everything.
+
+After the configure step and prior to the actual Make, do the following:
+
+   1. edit the file "libtool". Be sure to back up the original copy.
+   2. search for lines with instances of the strings "archive_cmds" and 
+      "module_expsym_cmds".
+   3. Between the strings "\$deplibs" and "\$compiler_flags", 
+      place the following: 
+
+    -isysroot /Developer/SDKs/MacOSX10.4u.sdk -arch ppc -arch i386
+
+Example:
+
+#Commands used to build and install a shared archive.
+archive_cmds="\$CC -dynamiclib \$allow_undefined_flag -o \$lib \$libobjs \$deplibs 
+-isysroot /Developer/SDKs/MacOSX10.4u.sdk  -arch ppc -arch i386 
+\$compiler_flags -install_name \$rpath/\$soname \$verstring"
+
+
+    * At this point, performing a "make" will result in universal binary 
+    versions of each dynamic library associated with CoolKey. 
+
+It is also possible to build the utility "pk11install" on the Mac. This 
+utility can be used to automatically install CoolKey into Mozilla browsers on 
+the user's system.
+
+    * Building "pk11install" will requre the configure script to be launched 
+with the following two environment variables: 
+
+NSS_CFLAGS=
+NSS_LIBS=
+
+    * NSS_CFLAGS has to be set to the include paths of NSS and NSPR currently 
+installed on the system.
+    * NSS_LIBS has to be set to the search path of the NSS and NSPR shared 
+libraries.
+    * Example invocation: 
+
+./configure --disable-dependency-tracking NSS_CFLAGS="-I /usr/local/include/nspr -I /usr/local/include/nss" NSS_LIBS="-L/usr/local/lib/nss" --enable-pkinstall
+ make
+
+Installing
+
+    * After a successful build of CoolKey, the Makefile can be used to perform 
+   a simple install of the software on the system if desired. 
+
+   1. Within the build directory perform the following: 
+
+make  install
+
+    * By default, everything will be placed in "/usr/local/lib" and 
+    "/usr/local/lib/pkcs11".
+    * An alternate prefix directory, instead of "/usr/local" can be selected 
+    at configure time as demonstrated below: 
+
+./configure --prefix=/usr/local/CoolKey --disable-dependency-tracking
+
+    * In the above example the install will result in everything being located 
+    in "/usr/local/CoolKey/lib" and "/usr/local/CoolKey/lib/pkcs11". 
+
+    * If desired the following example demonstartes how to install everything 
+    in an alternate base location: 
+
+make DESTDIR=/build/staging-area install
+
+    * The above will install the previous example in 
+    "/build/staging/usr/local/CoolKey". 
+
+
+
+Windows
+---------------------------------------------------------------------------
+
+Prerequisites
+
+    * Microsoft Visual C++ and Platform SDK: Install as normal. 
+    Make sure INCLUDE and LIB are set appropriately. These are available at 
+    (http://msdn.microsoft.com/visualc/)
+    * Cygwin: Install as normal. You'll need base, the shell, autoconf-2.5x, 
+    make, cvs*... This can be downloaded at (http://www.cygwin.com) 
+
+* This may not be a full list. If you discover additional packages which are 
+needed please let us know, or update the wiki 
+(http://directory/fedora.redhat.com/wiki/BuildCoolKey).
+
+    * ZLib Download ZLib source an binaries from here (http://www.zlib.org)
+         1. Unzip into a known directory (like c:/zlib)
+         2. Set ZLIB_INCLUDE to the location of the include files 
+            (e.g. c:/zlib/include)
+         3. Set ZLIB_LIB to the location of the export libraries 
+            (e.g. c:/zlib/lib) 
+	 4. Make sure both zdll.lib and zlib1.dll are in the ZLIB_LIB directory
+
+Building
+
+Once everything is installed, start a cygwin shell.
+
+   1. checkout the coolkey source
+   2. Make sure the environment variables INCLUDE, LIB, ZLIB_INCLUDE, and 
+   ZLIB_LIB are defined as described above in Prerequisites.
+   3. Make sure the Visual C++ tools are in your path.
+   4. In the root directory type: 
+
+autoconf-2.5x
+./configure
+make
+
+Installing
+
+To build a distribution:
+
+make install DESTDIR=C:/build/staging-area libdir=/libraries prefix=/sdk
+
+To install on your local machine:
+
+make install
+
+
+
