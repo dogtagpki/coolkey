@@ -1,0 +1,11 @@
+[PrgMaker]
+Package=com.redhat.nkey.applet
+PackageAID=627601FF0000
+OutputDir=C:\hack\netkey\applet
+ExportDir=C:\PROGRA~1\SCHLUM~1\SMARTC~1\CYBERF~1\v4\Toolkit\prgmaker\Export Files
+Version=1.0
+ClassDir=C:\hack\netkey\applet\src
+[Applets]
+NumApplets=1
+Applet1=CardEdge.class
+Applet1AID=627601FF000000
