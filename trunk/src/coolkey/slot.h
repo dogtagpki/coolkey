@@ -270,10 +270,9 @@ class CryptParams {
   protected:
     unsigned int getKeySize() const { return keySize; }
   public:
-    // !!!XXX hack. The right way to get the key size is to get all the
-    // key information from the token with MSCListKeys, the same way
-    // we get all the object information with MSCListObjects.
-    enum { FIXED_KEY_SIZE = 1024 };
+    // set the actual key size obtained from the card
+    void setKeySize(unsigned int newKeySize) { keySize = newKeySize; }
+    enum { DEFAULT_KEY_SIZE = 1024 };
 
 
     CryptParams(unsigned int keySize_) : keySize(keySize_) { }
@@ -422,7 +421,7 @@ class Slot {
 
     void cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
         CK_ULONG ulInputLen, CK_BYTE_PTR pOutput,
-        CK_ULONG_PTR pulOutputLen, const CryptParams& params);
+        CK_ULONG_PTR pulOutputLen, CryptParams& params);
 
     void performRSAOp(CKYBuffer *out, const CKYBuffer *input, CKYByte keyNum, 
 							     CKYByte direction);
@@ -460,6 +459,8 @@ class Slot {
         return (char )((objectID >> 16) & 0xff) - '0';
     }
 
+    // actually get the size of a key in bits from the card
+    unsigned int getKeySize(CKYByte keyNum);
 
     SessionHandleSuffix openSession(Session::Type type);
     void closeSession(SessionHandleSuffix handleSuffix);

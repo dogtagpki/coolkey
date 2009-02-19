@@ -134,6 +134,13 @@ CKYAppletFactory_Logout(CKYAPDU *apdu, const void *param)
 /* Future add WriteObject */
 
 CKYStatus
+CKYAppletFactory_WriteObject(CKYAPDU *apdu, const void *param)
+{
+    const CKYAppletArgWriteObject *wos = (const CKYAppletArgWriteObject *)param;
+    return CKYAPDUFactory_WriteObject(apdu,wos->objectID,wos->offset,wos->size,wos->data);
+}
+
+CKYStatus
 CKYAppletFactory_CreateObject(CKYAPDU *apdu, const void *param)
 {
     const CKYAppletArgCreateObject *cos=(const CKYAppletArgCreateObject *)param;
@@ -192,7 +199,6 @@ CKYAppletFactory_GetLifeCycleV2(CKYAPDU *apdu, const void *param)
 {
     return CKYAPDUFactory_GetLifeCycleV2(apdu);
 }
-
 CKYStatus
 CKYAppletFactory_GetRandom(CKYAPDU *apdu, const void *param)
 {
@@ -725,24 +731,48 @@ CKYApplet_ComputeCrypt(CKYCardConnection *conn, CKYByte keyNumber,
     CKYAppletArgComputeCrypt ccd;
     CKYBuffer    empty;
     CKYISOStatus status;
+    short       dataSize = 0;
     int         use2APDUs = 0;
+    int 	use_dl_object =  CKYBuffer_Size(data) > 200 ;
 
     CKYBuffer_InitEmpty(&empty);
     ccd.keyNumber = keyNumber;
     ccd.mode      = mode;
     ccd.direction = direction;
-    ccd.location  = CKY_DL_APDU;
+    ccd.location  = use_dl_object ? CKY_DL_OBJECT : CKY_DL_APDU;
 
     if (!apduRC)
     	apduRC = &status;
 
+    if (use_dl_object) {
+	CKYBuffer  sizeBuf;
+ 
+	CKYBuffer_InitEmpty(&sizeBuf);
+	CKYBuffer_AppendShort(&sizeBuf, CKYBuffer_Size(data));
+
+        ret = CKYApplet_WriteObjectFull(conn, 0xffffffff,
+                  0, CKYBuffer_Size(&sizeBuf), nonce,
+                  &sizeBuf, apduRC);
+
+        CKYBuffer_FreeData(&sizeBuf);
+        if( ret != CKYSUCCESS)
+           goto fail;
+
+        ret = CKYApplet_WriteObjectFull(conn, 0xffffffff,
+                  2, CKYBuffer_Size(data), nonce,
+                  data, apduRC);
+
+        if(ret != CKYSUCCESS)
+           goto fail; 
+    }
+
     if (mode == CKY_RSA_NO_PAD) {
-	ccd.data = data;
+	ccd.data = use_dl_object ? &empty : data;
 	ccd.sig  = sig;
 	ret = CKYApplet_HandleAPDU(conn, 
 			    CKYAppletFactory_ComputeCryptOneStep, &ccd, nonce, 
 			    CKY_SIZE_UNKNOWN, ckyAppletFill_ComputeCryptFinal, 
-			    result, apduRC);
+			    use_dl_object ? NULL : result, apduRC);
     	if (ret == CKYAPDUFAIL && *apduRC == CKYISO_INCORRECT_P2) {
 	    use2APDUs = 1;  /* maybe it's an old applet */
 	}
@@ -759,13 +789,38 @@ CKYApplet_ComputeCrypt(CKYCardConnection *conn, CKYByte keyNumber,
 			    CKYAppletFactory_ComputeCryptInit, &ccd, nonce, 
 			    0, CKYAppletFill_Null, NULL, apduRC);
 	if (ret == CKYSUCCESS) {
-	    ccd.data = data;
+	    ccd.data = use_dl_object ? &empty : data;
 	    ret = CKYApplet_HandleAPDU(conn, 
 			    CKYAppletFactory_ComputeCryptFinal, &ccd, nonce, 
 			    CKY_SIZE_UNKNOWN, ckyAppletFill_ComputeCryptFinal, 
-			    result, apduRC);
+			    use_dl_object ? NULL : result, apduRC);
 	}
     }
+
+    if (use_dl_object && ret == CKYSUCCESS) {
+        CKYBuffer  sizeOutBuf;
+        CKYBuffer_InitEmpty(&sizeOutBuf);
+
+        ret = CKYApplet_ReadObjectFull(conn,0xffffffff,
+                             0, 2,
+                             nonce,&sizeOutBuf,apduRC);
+
+        if(ret != CKYSUCCESS) {
+            CKYBuffer_FreeData(&sizeOutBuf);
+            goto fail;
+        }
+
+        dataSize = CKYBuffer_GetShort(&sizeOutBuf, 0);
+
+        CKYBuffer_FreeData(&sizeOutBuf);
+
+        ret = CKYApplet_ReadObjectFull(conn,0xffffffff, 
+                             2, dataSize,
+                             nonce,result,apduRC); 
+    }
+
+fail:
+
     return ret;
 }
 
@@ -1030,6 +1085,44 @@ CKYApplet_ReadObjectFull(CKYCardConnection *conn, unsigned long objectID,
 	   nonce, rod.size, CKYAppletFill_AppendBuffer, data, apduRC);
 	size -= rod.size;
 	rod.offset += rod.size;
+    } while ((size > 0) && (ret == CKYSUCCESS));
+
+    return ret;
+}
+
+/*
+ * Write Object
+ * This makes multiple APDU calls to write the entire object.
+ *
+ */
+
+CKYStatus 
+CKYApplet_WriteObjectFull(CKYCardConnection *conn, unsigned long objectID,
+                  CKYOffset offset, CKYSize size, const CKYBuffer *nonce,
+                  const CKYBuffer *data, CKYISOStatus *apduRC)
+{
+
+    CKYBuffer chunk;
+    CKYOffset srcOffset = 0;
+    CKYAppletArgWriteObject wod;
+    CKYStatus ret = CKYSUCCESS;
+
+    wod.objectID = objectID;
+    wod.offset = offset;
+    do {
+        wod.size = (CKYByte) MIN(size, 220);
+        ret = CKYBuffer_InitFromBuffer(&chunk, data,
+                                       srcOffset, wod.size);
+        if(ret == CKYSUCCESS)  {
+            wod.data = &chunk;
+            ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_WriteObject, &wod,
+               nonce, 0, CKYAppletFill_Null, NULL, apduRC);
+            size -= wod.size;
+            wod.offset += wod.size;
+            srcOffset  += wod.size;
+            CKYBuffer_FreeData(&chunk);
+       }
+
     } while ((size > 0) && (ret == CKYSUCCESS));
 
     return ret;

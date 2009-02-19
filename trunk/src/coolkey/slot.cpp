@@ -1331,6 +1331,19 @@ class ObjectHandleMatch {
     }
 };
 
+class KeyNumMatch {
+  private:
+    CKYByte keyNum;
+    const Slot &slot;
+  public:
+    KeyNumMatch(CKYByte keyNum_, const Slot &s) : keyNum(keyNum_), slot(s) { }
+    bool operator() (const PKCS11Object& obj) {
+        unsigned long objID = obj.getMuscleObjID();
+        return (slot.getObjectClass(objID) == 'k')
+               && (slot.getObjectIndex(objID) == keyNum);
+    }
+};
+
 class ObjectCertCKAIDMatch {
   private:
     CKYByte cka_id;
@@ -3066,8 +3079,9 @@ Slot::sign(SessionHandleSuffix suffix, CK_BYTE_PTR pData,
         CK_ULONG ulDataLen, CK_BYTE_PTR pSignature,
         CK_ULONG_PTR pulSignatureLen)
 {
+    RSASignatureParams params(CryptParams::DEFAULT_KEY_SIZE);
     cryptRSA(suffix, pData, ulDataLen, pSignature, pulSignatureLen,
-        RSASignatureParams(CryptParams::FIXED_KEY_SIZE));
+        params);
 }
 
 void
@@ -3075,14 +3089,15 @@ Slot::decrypt(SessionHandleSuffix suffix, CK_BYTE_PTR pData,
         CK_ULONG ulDataLen, CK_BYTE_PTR pDecryptedData,
         CK_ULONG_PTR pulDecryptedDataLen)
 {
+    RSADecryptParams params(CryptParams::DEFAULT_KEY_SIZE);
     cryptRSA(suffix, pData, ulDataLen, pDecryptedData, pulDecryptedDataLen,
-        RSADecryptParams(CryptParams::FIXED_KEY_SIZE));
+        params);
 }
 
 void
 Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
         CK_ULONG ulInputLen, CK_BYTE_PTR pOutput,
-        CK_ULONG_PTR pulOutputLen, const CryptParams& params)
+        CK_ULONG_PTR pulOutputLen, CryptParams& params)
 {
     refreshTokenState();
     SessionIter session = findSession(suffix);
@@ -3099,6 +3114,11 @@ Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
     CryptOpState& opState = params.getOpState(*session);
     CKYBuffer *result = &opState.result;
     CKYByte keyNum = opState.keyNum;
+
+    unsigned int keySize = getKeySize(keyNum);
+
+    if(keySize != CryptParams::DEFAULT_KEY_SIZE)
+        params.setKeySize(keySize);
 
     if( CKYBuffer_Size(result) == 0 ) {
         // we haven't already peformed the decryption, so do it now.
@@ -3301,4 +3321,37 @@ Slot::generateRandom(SessionHandleSuffix suffix, const CK_BYTE_PTR pData,
 	}
 	throw PKCS11Exception(CKR_DEVICE_ERROR);
     }
+}
+
+#define MAX_NUM_KEYS 8
+unsigned int
+Slot::getKeySize(CKYByte keyNum)
+{
+    unsigned int keySize = CryptParams::DEFAULT_KEY_SIZE;
+    int modSize = 0;
+
+    if(keyNum >= MAX_NUM_KEYS) {
+        return keySize;
+    }
+
+    ObjectConstIter iter;
+    iter = find_if(tokenObjects.begin(), tokenObjects.end(),
+        KeyNumMatch(keyNum,*this));
+
+    if( iter == tokenObjects.end() ) {
+        return keySize;
+    }
+
+    CKYBuffer const *modulus = iter->getAttribute(CKA_MODULUS);
+
+    if(modulus) {
+        modSize = CKYBuffer_Size(modulus);
+        if(CKYBuffer_GetChar(modulus,0) == 0x0) {
+            modSize--;
+        }
+        if(modSize > 0)
+            keySize = modSize * 8;
+    }
+
+    return keySize;
 }

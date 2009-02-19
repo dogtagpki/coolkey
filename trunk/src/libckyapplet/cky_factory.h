@@ -190,7 +190,8 @@ CKYStatus CKYAPDUFactory_ChangePIN(CKYAPDU *apdu, CKYByte pinNUmber,
 				const char *oldPin, const char *newPin);
 CKYStatus CKYAPDUFactory_ListPINs(CKYAPDU *apdu);
 CKYStatus CKYAPDUFactory_Logout(CKYAPDU *apdu, CKYByte pinNumber);
-
+CKYStatus CKYAPDUFactory_WriteObject(CKYAPDU *apdu, unsigned long objectID,
+                CKYOffset offset,CKYSize size,CKYBuffer *data);
 /* Future add WriteObject */
 CKYStatus CKYAPDUFactory_CreateObject(CKYAPDU *apdu, unsigned long objectID,
  CKYSize size, unsigned short readACL, unsigned short writeACL, 

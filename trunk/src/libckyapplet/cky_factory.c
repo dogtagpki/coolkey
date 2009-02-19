@@ -190,8 +190,11 @@ CKYAPDUFactory_ComputeCryptOneStep(CKYAPDU *apdu, CKYByte keyNumber, CKYByte mod
     CKYSize   len;
     CKYBuffer buf;
 
-    if (!idata || !(len = CKYBuffer_Size(idata)) || location != CKY_DL_APDU)
-    	return ret;
+    if (!idata)
+        return ret;
+
+    if (!(len = CKYBuffer_Size(idata)) && location != CKY_DL_OBJECT)
+        return ret;
 
     CKYAPDU_SetCLA(apdu, CKY_CLASS_COOLKEY);
     CKYAPDU_SetINS(apdu, CKY_INS_COMPUTE_CRYPT);
@@ -314,8 +317,6 @@ CKYAPDUFactory_Logout(CKYAPDU *apdu, CKYByte pinNumber)
     return CKYSUCCESS;
 }
 
-/* Future add WriteObject */
-
 CKYStatus
 CKYAPDUFactory_CreateObject(CKYAPDU *apdu, unsigned long objectID, CKYSize size,
     unsigned short readACL, unsigned short writeACL, unsigned short deleteACL)
@@ -412,6 +413,58 @@ CKYAPDUFactory_ReadObject(CKYAPDU *apdu, unsigned long objectID,
 	goto fail;
     }
     ret = CKYAPDU_SetSendDataBuffer(apdu, &buf);
+fail:
+    CKYBuffer_FreeData(&buf);
+    return ret;
+
+}
+
+CKYStatus
+CKYAPDUFactory_WriteObject(CKYAPDU *apdu, unsigned long objectID,
+                                    CKYOffset offset,CKYSize size,CKYBuffer *data)
+{
+    CKYBuffer buf;
+    CKYStatus ret = CKYSUCCESS;
+    unsigned short dataSize = 0;
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_COOLKEY);
+    CKYAPDU_SetINS(apdu, CKY_INS_WRITE_OBJ);
+    CKYAPDU_SetP1(apdu, 0x00);
+    CKYAPDU_SetP2(apdu, 0x00);
+    CKYBuffer_InitEmpty(&buf);
+
+    dataSize = (unsigned short) CKYBuffer_Size(data);
+
+    if(!dataSize) {
+        ret = CKYINVALIDARGS;
+        goto fail;
+    }
+
+    ret = CKYBuffer_AppendLong(&buf,objectID);
+    if (ret != CKYSUCCESS) {
+        goto fail;
+    }
+    ret = CKYBuffer_AppendLong(&buf,offset);
+    if (ret != CKYSUCCESS) {
+        goto fail;
+    }
+    ret = CKYBuffer_AppendChar(&buf, size);
+    if (ret != CKYSUCCESS) {
+        goto fail;
+    }
+
+    ret = CKYAPDU_SetSendDataBuffer(apdu,&buf);
+
+    if (ret != CKYSUCCESS) {
+        goto fail;
+    }
+
+    ret = CKYAPDU_AppendSendDataBuffer(apdu, data);
+
+    if (ret != CKYSUCCESS) {
+        goto fail;
+    }
+
 fail:
     CKYBuffer_FreeData(&buf);
     return ret;
