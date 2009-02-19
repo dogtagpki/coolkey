@@ -192,6 +192,14 @@ typedef struct _CKYAppletArgReadObject {
     CKYByte         size;
 } CKYAppletArgReadObject;
 
+typedef struct _CKYAppletArgWriteObject {
+    unsigned long objectID;
+    CKYOffset     offset;
+    CKYByte       size;
+    CKYBuffer     *data;
+
+} CKYAppletArgWriteObject;
+
 typedef struct _CKYAppletArgComputeCrypt {
     CKYByte   keyNumber;
     CKYByte   mode;
@@ -250,6 +258,8 @@ CKYStatus CKYAppletFactory_ListPINs(CKYAPDU *apdu, const void *param);
 /* param == CKYByte * (pointer to pinNumber) */
 CKYStatus CKYAppletFactory_Logout(CKYAPDU *apdu, const void *param);
 /* Future add WriteObject */
+/* parm == CKYAppletArgWriteObject */
+CKYStatus CKYAppletFactory_WriteObject(CKYAPDU *apdu, const void *param);
 /* param == CKYAppletArgCreateObject */
 CKYStatus CKYAppletFactory_CreateObject(CKYAPDU *apdu, const void *param);
 /* param == CKYAppletArgDeleteObject */
@@ -482,6 +492,17 @@ CKYStatus CKYApplet_ReadObjectAppend(CKYCardConnection *conn,
 CKYStatus CKYApplet_ReadObjectFull(CKYCardConnection *conn, 
 		unsigned long objectID, CKYOffset offset, CKYSize size,
 		 const CKYBuffer *nonce, CKYBuffer *data, CKYISOStatus *apduRC);
+/*
+ * There is 1 write command:
+ * CKYApplet_WriteObjectFull can write an entire data object. It makes multiple
+ * apdu calls in order to write the full amount into the buffer. The buffer is
+ * overwritten.
+*/
+
+CKYStatus CKYApplet_WriteObjectFull(CKYCardConnection *conn,
+        unsigned long objectID, CKYOffset offset, CKYSize size,
+        const CKYBuffer *nonce, const CKYBuffer *data, CKYISOStatus *apduRC);
+
 CKYStatus CKYApplet_ListObjects(CKYCardConnection *conn, CKYByte seq,
 		CKYAppletRespListObjects *lop, CKYISOStatus *apduRC);
 CKYStatus CKYApplet_GetStatus(CKYCardConnection *conn, 
