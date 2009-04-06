@@ -1,0 +1,94 @@
+/************************************************************
+    MUSCLE SmartCard Development
+        Package:        CardEdgeApplet
+        Type:           Java precompiled binaries
+        Description:    CardEdge implementation with JavaCard
+        Authors:        Tommaso Cucinotta <cucinotta@sssup.it>
+                        David Corcoran <corcoran@linuxnet.com>
+                        Ludovic Rousseau <ludovic.rousseau@free.fr>
+        Modified:
+                        Eirik Herskedal <ehersked@cs.purdue.edu>
+                        See AUTHORS file for further details
+        Date:           October 2001 - October 2002
+        License:        See COPYING file
+************************************************************/
+
+
+HISTORY
+============================================================
+0.9.10: 20 Sep 2002
+   Correct a security bug: When importing a certificate (from
+   Mozilla) the keys were created with read, write and use set to
+   ALWAYS.
+
+0.9.9: 8 Sep 2002
+   Include Java source code
+
+0.9.8: Jul 2002
+   Include the converted CAP file
+
+0.9.7: Mar 2002
+   Inclusion of GemXpressoRADIII support
+
+0.9.6: Nov 2001
+   Split the packages
+
+0.9.5:
+   First release
+
+
+REQUIREMENTS
+============================================================
+In order to use this program, you must have a JavaCard 2.1.1
+compliant smart card and a supported smart card reader.
+You must also have all the software required to load a Java
+Card Applet on your smartcard.
+
+Different smart card vendors provide emulators for their own
+smart cards. You can also try loading this program into an
+emulated card. In this case you don't need cards nor readers
+to be connected to your system.
+
+
+DESCRIPTION
+============================================================
+This package contains source code and precompiled binaries for
+the Card Edge Applet, a free implementation of the Cryptographic
+Card Edge Definition for Java Enabled Smartcards.
+
+  http://www.musclecard.com/musclecard/
+
+Note that different versions of this Applet could be released,
+with different features disabled, in order to let you save
+space on the card if your application does not require those
+features at all.
+
+
+ADDITIONAL FEATURES
+============================================================
+This Applet actually supports some pin policy enforcement.
+Checks are made on the pin size, character set and mix of
+characters.
+The exact pin policy depends on parameters provided at
+instantiation time.
+
+
+KNOWN LIMITATIONS
+============================================================
+This Applet has been tested with Schlumberger Cyberflex
+Access 32K cards, Gemplus Gxp 211 PK, Gemplus GemXploreXpresso v3
+and is known to work with most cryptographic features involving
+RSA and DES keys. DSA testing still needs to be done with cards
+supporting it.
+
+
+KNOWN BUGS
+============================================================
+None at the moment (02-Oct-2002)
+
+
+SUPPORT
+============================================================
+If you need any further information, please contact us using
+the public mailing list for the M.U.S.C.L.E. project.
+
