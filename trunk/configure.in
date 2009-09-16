@@ -124,9 +124,9 @@ then
 if test $WINDOWS -ne 1; then
   PKG_CHECK_MODULES(NSS, nss, true, [ AC_MSG_ERROR(could not find NSS Crypto libraries) ])
 fi
-  enable_pk11install = "yes"
+  enable_pk11install="yes"
 else
-  enable_pk11install = "no"
+  enable_pk11install="no"
   AC_MSG_WARN([skipping pk11install])
 fi
 

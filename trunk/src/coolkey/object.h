@@ -82,7 +82,7 @@ class PKCS11Object {
     PKCS11Object(unsigned long muscleObjID, CK_OBJECT_HANDLE handle);
     PKCS11Object(unsigned long muscleObjID, const CKYBuffer *data,
         CK_OBJECT_HANDLE handle);
-    ~PKCS11Object() { delete label; delete name; CKYBuffer_FreeData(&pubKey); }
+    ~PKCS11Object() { delete [] label; delete [] name; CKYBuffer_FreeData(&pubKey); }
 
     PKCS11Object(const PKCS11Object& cpy) :
         attributes(cpy.attributes), muscleObjID(cpy.muscleObjID),
