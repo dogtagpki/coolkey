@@ -397,7 +397,7 @@ PKCS11Object::getLabel()
 {
     // clean up old one
     if (label) {
-	delete label;
+	delete [] label;
 	label = NULL;
     }
     // find matching attribute

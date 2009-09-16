@@ -572,7 +572,7 @@ SlotList::getSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
 void
 Slot::connectToToken()
 {
-    CKYStatus status;
+    CKYStatus status = CKYSCARDERR;
     OSTime time = OSTimeNow();
 
     mCoolkey = 0;
@@ -979,7 +979,7 @@ Slot::makeLabelString(char *label, int maxSize, const unsigned char *cuid)
 //
 #define COOLKEY "CoolKey"
 #define POSSESSION " for "
-    if (!personName || personName == "") {
+    if (!personName || personName[0] == '\0' ) {
 	const int coolKeySize = sizeof(COOLKEY) ;
 	memcpy(label, COOLKEY, coolKeySize-1);
 	makeSerialString(&label[coolKeySize], maxSize-coolKeySize, cuid);
@@ -1528,7 +1528,7 @@ SlotMemSegment::SlotMemSegment(const char *readerName):
     }
     sprintf(segName,SEGMENT_PREFIX"%s",readerName); 
     segment = SHMem::initSegment(segName, MAX_OBJECT_STORE_SIZE, needInit);
-    delete segName;
+    delete [] segName;
     if (!segment) {
 	// just run without shared memory
 	return;
