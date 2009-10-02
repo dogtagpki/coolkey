@@ -18,29 +18,51 @@
 #
 #
 # Nmake capable makefile.
+#
+
+
+# Deal with flags for the debug version.
 # 
-LCFLAGS=-Od -I$(CAPISDK)/sdkinc -DWIN32 -D_DEBUG -D_WINDOWS -D_USRDLL    \
+DBGLCFLAGS =
+DBGFLAGS =
+MTLIB = -MT
+
+!IF "$(BUILD_OPT)" == "1"
+DBGLCFLAGS = -ZI -DEBUG -D_DEBUG
+DBGFLAGS = /DEBUG
+MTLIB = -MTd
+!ENDIF
+
+# Deal with 32 or 64 bit machine.
+#
+ARCH = X86
+
+!IF "$(USE_64)" == "1"
+ARCH = X64
+!ENDIF
+ 
+LCFLAGS=-Od -I$(CAPISDK)/sdkinc -DWIN32  -D_WINDOWS -D_USRDLL    \
           -D_CONSOLE -DCSP_EXPORTS -D_WINDLL -DIDA_PROMPT_PINGUI -D_MBCS \
-	  -Gm -EHsc -RTC1 -W3 -nologo -c -ZI -TP
+	   -EHsc -RTC1 -W3 -nologo -c $(DBGCLFLAGS) -TP
 
-CSPRESFLAGS=/INCREMENTAL:NO /NOLOGO /DLL /DEF:"cspres.def" /DEBUG     \
+CSPRESFLAGS=/INCREMENTAL:NO /NOLOGO /DLL /DEF:"cspres.def" $(DBGFLAGS)    \
             /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /IMPLIB:"cspres.lib" \
-            /MACHINE:X86
+            /MACHINE:$(ARCH)
 
-CSPFLAGS=/INCREMENTAL:NO /NOLOGO /DLL /DEF:"csp.def" /DEBUG               \
-	 /SUBSYSTEM:WINDOWS /IMPLIB:"clkcsp.lib" /MACHINE:X86 crypt32.lib \
+CSPFLAGS=/INCREMENTAL:NO /NOLOGO /DLL /DEF:"csp.def" $(DBGFLAGS)          \
+	 /SUBSYSTEM:WINDOWS /IMPLIB:"clkcsp.lib" /MACHINE:$(ARCH) crypt32.lib \
 	 RpcRT4.Lib winscard.lib Scarddlg.lib cspres.lib  kernel32.lib    \
          user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib      \
          shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib 
 
-REGCERTSFLAGS=/INCREMENTAL:NO /NOLOGO /DEBUG /SUBSYSTEM:CONSOLE /MACHINE:X86 \
+REGCERTSFLAGS=/INCREMENTAL:NO /NOLOGO $(DBGFLAGS) /SUBSYSTEM:CONSOLE /MACHINE:$(ARCH) \
               kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib    \
               advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib       \
               odbc32.lib odbccp32.lib 
 CC=cl
 
 TARGETS=cspres.dll clkcsp.dll regcerts.exe clkcsp.sig
-TRASH=*.pdb *.lib *.exp *.idb
+TRASH=*.pdb *.lib *.exp *.idb *.manifest
 
 CSP_OBJ =  \
     csp.obj \
@@ -67,7 +89,7 @@ REG_CERTS_OBJ = \
 .SUFFIXES: .cpp .obj .OBJ .rc .res .Obj .dll .sig
 
 .cpp.obj:
-	$(CC) $(LCFLAGS) -MTd $<
+	$(CC) $(LCFLAGS) $(MTLIB) $<
 
 .cpp.Obj:
 	$(CC) $(LCFLAGS) -MLd -Wp64 $<
@@ -89,10 +111,17 @@ clean:
 
 cspres.dll: $(CSP_RES_OBJ)
 	link  /OUT:cspres.dll $(CSP_RES_OBJ) $(CSPRESFLAGS)
-
+#Process manifest file if applicable.
+!IF "$(_NMAKE_VER)" >= "8.00" 
+	mt.exe -manifest cspres.dll.manifest -outputresource:"cspres.dll;2"
+!ENDIF
 clkcsp.dll: $(CSP_OBJ) 
 	link  /OUT:clkcsp.dll $(CSP_OBJ) $(CSPFLAGS)
-
+!IF "$(_NMAKE_VER)" >= "8.00" 
+	mt.exe -manifest clkcsp.dll.manifest -outputresource:"clkcsp.dll;2"
+!ENDIF
 regcerts.exe: $(REG_CERTS_OBJ)
 	link  /OUT:regcerts.exe $(REG_CERTS_OBJ) $(REGCERTSFLAGS)
-
+!IF "$(_NMAKE_VER)" >= "8.00"
+	mt.exe -manifest regcerts.exe.manifest -outputresource:"regcerts.exe;1"
+!ENDIF
