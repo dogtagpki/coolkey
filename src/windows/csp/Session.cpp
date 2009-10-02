@@ -107,8 +107,10 @@ void Session::parseFQCN(const char* fqcn0, BinStr* container_name, BinStr* reade
    else
       (*container_name) = fqcn;
 
-   LOG("ParseFQCN: container_name: \"%s\"\n", StringifyBin(*container_name, false).c_str());
-   LOG("ParseFQCN: reader_name: \"%s\"\n", StringifyBin(*reader_name, false).c_str());
+   if(container_name->size())
+      LOG("ParseFQCN: container_name: \"%s\"\n", StringifyBin(*container_name, false).c_str());
+   if(reader_name->size())
+      LOG("ParseFQCN: reader_name: \"%s\"\n", StringifyBin(*reader_name, false).c_str());
 }
 
 } // namespace MCSP

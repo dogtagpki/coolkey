@@ -572,7 +572,7 @@ SlotList::getSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
 void
 Slot::connectToToken()
 {
-    CKYStatus status;
+    CKYStatus status = CKYSCARDERR;
     OSTime time = OSTimeNow();
 
     mCoolkey = 0;

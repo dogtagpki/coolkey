@@ -101,7 +101,7 @@ getSigFileName(const char *libName)
 	return NULL;
     }
 
-    ext = strrchr(libName, '.');
+    ext = (char *) strrchr(libName, '.');
     if (ext) {
 	libLen = ext - libName;
     }
