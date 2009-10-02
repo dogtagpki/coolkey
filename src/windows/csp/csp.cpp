@@ -999,8 +999,8 @@ CPSetProvParam(
 
             BinStr containerName = (char*)pbData;
             CRYPT_KEY_PROV_INFO provInfo;
-            provInfo.pwszContainerName = new unsigned short[containerName.size()];
-            provInfo.pwszProvName = new unsigned short[strlen(PROVIDER_NAME) + 1];;
+            provInfo.pwszContainerName = (LPWSTR) new unsigned short[containerName.size()];
+            provInfo.pwszProvName = (LPWSTR) new unsigned short[strlen(PROVIDER_NAME) + 1];
             provInfo.dwProvType = PROVIDER_TYPE;
             provInfo.dwFlags = 0;
             provInfo.cProvParam = 0;

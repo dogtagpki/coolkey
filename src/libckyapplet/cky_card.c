@@ -50,10 +50,10 @@ typedef long (WINAPI * SCardReleaseContextFn) (
     SCARDCONTEXT hContext);
 
 typedef long (WINAPI * SCardBeginTransactionFn) (
-    long hCard);
+    SCARDHANDLE hCard);
 
 typedef long (WINAPI * SCardEndTransactionFn) (
-    long hCard,
+    SCARDHANDLE hCard,
     unsigned long dwDisposition);
 
 typedef long (WINAPI * SCardConnectFn) (
@@ -61,15 +61,15 @@ typedef long (WINAPI * SCardConnectFn) (
     const char *szReader,
     unsigned long dwShareMode,
     unsigned long dwPreferredProtocols,
-    long *phCard,
+    SCARDHANDLE *phCard,
     unsigned long *pdwActiveProtocol);
 
 typedef long (WINAPI * SCardDisconnectFn) (
-    long hCard,
+    SCARDHANDLE hCard,
     unsigned long dwDisposition);
 
 typedef long (WINAPI * SCardTransmitFn) (
-    long hCard,
+    SCARDHANDLE hCard,
     LPCSCARD_IO_REQUEST pioSendPci,
     const unsigned char *pbSendBuffer,
     unsigned long cbSendLength,
@@ -78,7 +78,7 @@ typedef long (WINAPI * SCardTransmitFn) (
     unsigned long *pcbRecvLength);
 
 typedef long (WINAPI * SCardReconnectFn) (
-    long hCard,
+    SCARDHANDLE hCard,
     unsigned long dwShareMode,
     unsigned long dwPreferredProtocols,
     unsigned long dwInitialization,
@@ -91,7 +91,7 @@ typedef long (WINAPI * SCardListReadersFn) (
     unsigned long *pcchReaders);
 
 typedef long (WINAPI * SCardStatusFn) (
-    long hCard,
+    SCARDHANDLE hCard,
     char *mszReaderNames,
     unsigned long *pcchReaderLen,
     unsigned long *pdwState,
@@ -100,7 +100,7 @@ typedef long (WINAPI * SCardStatusFn) (
     unsigned long *pcbAtrLen);
 
 typedef long (WINAPI * SCardGetAttribFn) (
-    long hCard,
+    SCARDHANDLE hCard,
     unsigned long dwAttId,
     char *pbAttr,
     unsigned long *pchAttrLen);
