@@ -688,6 +688,7 @@ Slot::connectToToken()
          * unfriendly */
 	isVersion1Key = 0;
 	needLogin = 1;
+        mCoolkey = 0;
 
 	return;
     }
