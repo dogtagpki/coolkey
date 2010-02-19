@@ -493,7 +493,7 @@ CKYCardContext_Create(unsigned long scope)
  * condition. Detect this case and continue. We'll establish the connection
  * later..
  */
-    if (ctx->lastError == SCARD_F_INTERNAL_ERROR) {
+    if (ctx->lastError == SCARD_F_INTERNAL_ERROR || ctx->lastError == SCARD_E_NO_SERVICE) {
 	ctx->context = 0; /* make sure it's not established */
 	return ctx;
     }
@@ -545,7 +545,7 @@ CKYCardContext_ListReaders(CKYCardContext *ctx, CKYReaderNameList *readerNames)
  	if (ret != CKYSUCCESS) {
 
 #ifdef MAC
-	    if (ctx->lastError == SCARD_F_INTERNAL_ERROR) {
+	    if (ctx->lastError == SCARD_F_INTERNAL_ERROR || ctx->lastError == SCARD_E_NO_SERVICE) {
 		/* Still can't establish, just treat it as 'zero' readers */
 		return CKYSUCCESS;
 	    }
