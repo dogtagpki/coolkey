@@ -40,12 +40,14 @@ struct OSLockData;
 class OSLock {
 private:
    OSLockData *lockData;
+   static bool needThread;
 public:
    OSLock(bool exceptionAllowed = true);
    ~OSLock();
    bool isValid();
    void getLock();
    void releaseLock();
+   static void setThreadSafe(bool thread) { needThread = thread; }
 };
 
 typedef unsigned long OSTime;
