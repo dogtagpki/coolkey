@@ -42,7 +42,9 @@ static Log *log = NULL;
 
 static SlotList *slotList = NULL;
 
-static OSLock finalizeLock(false);
+static OSLock *finalizeLock = NULL;
+#define FINALIZE_GETLOCK() if (finalizeLock) finalizeLock->getLock();
+#define FINALIZE_RELEASELOCK() if (finalizeLock) finalizeLock->releaseLock();
 
 static CK_BBOOL initialized = FALSE;
 static CK_BBOOL finalizing = FALSE;
@@ -208,11 +210,13 @@ C_Initialize(CK_VOID_PTR pInitArgs)
     if( initialized ) {
         return CKR_CRYPTOKI_ALREADY_INITIALIZED;
     }
-    if (!finalizeLock.isValid()) {
+    if (finalizeLock && !finalizeLock->isValid()) {
 	return CKR_CANT_LOCK;
     }
     CK_C_INITIALIZE_ARGS* initArgs = (CK_C_INITIALIZE_ARGS*) pInitArgs;
+    OSLock::setThreadSafe(0);
     if( initArgs != NULL ) {
+	bool needThreads;
 	/* work around a bug in NSS where the library parameters are only
 	 * send if locking is requested */
 	if (initArgs->LibraryParameters) {
@@ -220,7 +224,17 @@ C_Initialize(CK_VOID_PTR pInitArgs)
 	} else {
 	    Params::ClearParams();
 	}
-        if( (initArgs->flags & CKF_OS_LOCKING_OK) || initArgs->LockMutex ){
+  	needThreads = ((initArgs->flags & CKF_OS_LOCKING_OK) != 0);
+	OSLock::setThreadSafe(needThreads);
+	/* don't get a finalize lock unless someone initializes us asking
+	 * us to use threads */
+	if (needThreads && !finalizeLock) {
+	    finalizeLock = new OSLock(true);
+	    if (finalizeLock == NULL) return CKR_HOST_MEMORY;
+	}
+	/* only support OS LOCKING threads */
+        if( ((initArgs->flags & CKF_OS_LOCKING_OK) == 0) 
+						&& initArgs->LockMutex ){
             throw PKCS11Exception(CKR_CANT_LOCK);
         }
     }
@@ -259,9 +273,9 @@ C_Finalize(CK_VOID_PTR pReserved)
     // the finalizing call first, we know it will set waitEvent before
     // we can get the lock, so we only need to protect setting finalizing
     // to true.
-    finalizeLock.getLock();
+    FINALIZE_GETLOCK();
     finalizing = TRUE;
-    finalizeLock.releaseLock();
+    FINALIZE_RELEASELOCK();
     if (waitEvent) {
 	/* we're waiting on a slot event, shutdown first to allow
 	 * the wait function to complete before we pull the rug out.
@@ -273,10 +287,10 @@ C_Finalize(CK_VOID_PTR pReserved)
     } 
     delete slotList;
     delete log;
-    finalizeLock.getLock();
+    FINALIZE_GETLOCK();
     finalizing = FALSE;
     initialized = FALSE;
-    finalizeLock.releaseLock();
+    FINALIZE_RELEASELOCK();
     return CKR_OK;
 }
 
@@ -595,17 +609,17 @@ C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject,
 CK_RV
 C_WaitForSlotEvent(CK_FLAGS flags, CK_SLOT_ID_PTR pSlot, CK_VOID_PTR pReserved)
 {
-    finalizeLock.getLock();
+    FINALIZE_GETLOCK();
     if( ! initialized ) {
-        finalizeLock.releaseLock();
+	FINALIZE_RELEASELOCK();
         return CKR_CRYPTOKI_NOT_INITIALIZED;
     }
     if (finalizing) {
-        finalizeLock.releaseLock();
+	FINALIZE_RELEASELOCK();
         return CKR_CRYPTOKI_NOT_INITIALIZED;
     }
     waitEvent = TRUE;
-    finalizeLock.releaseLock();
+    FINALIZE_RELEASELOCK();
     try {
         log->log("C_WaitForSlotEvent called\n");
         slotList->waitForSlotEvent(flags, pSlot, pReserved);

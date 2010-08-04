@@ -37,6 +37,8 @@
 #include <stdlib.h>
 #endif
 
+bool OSLock::needThread = 0;
+
 #ifdef _WIN32
 //
 // Windows functions to grab a named shared memory segment of a specific size,
@@ -123,6 +125,10 @@ struct OSLockData {
 
 OSLock::OSLock(bool exceptionAllowed)
 {
+    if (!needThread) {
+	lockData = NULL;
+	return;
+    }
     lockData = new OSLockData;
     if (lockData) {
 	InitializeCriticalSection(&lockData->mutex);
@@ -360,6 +366,9 @@ OSLock::OSLock(bool exceptionAllowed)
     int rc;
 
     lockData = NULL;
+    if (!needThread) {
+	return;
+    }
 #ifdef MAC
     if (!OSLock_attr_init) {
 	rc = pthread_mutexattr_init(&OSLock_attr);
