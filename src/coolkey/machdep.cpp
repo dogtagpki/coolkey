@@ -236,6 +236,73 @@ SHMemData::~SHMemData() {
     }
 }
 
+/*
+ * The cache directory is shared and accessible by anyone, make
+ * sure the cache file we are opening is really a valid cache file.
+ */
+int safe_open(char *path, int flags, int mode, int size)
+{
+    struct stat buf;
+    int fd, ret;
+
+    fd = open (path, flags|O_NOFOLLOW, mode);
+
+    if (fd < 0) {
+	return fd;
+    }
+
+    ret = fstat(fd, &buf);
+    if (ret < 0) {
+	close (fd);
+	return ret;
+    }
+
+    /* our cache files are pretty specific, make sure we are looking
+     * at the correct one */
+
+    /* first, we should own the file ourselves, don't open a file
+     * that someone else wanted us to see. */
+    if (buf.st_uid != getuid()) {
+	close(fd);
+	errno = EACCES;
+	return -1;
+    }
+
+    /* next, there should only be one link in this file. Don't
+     * use this code to trash another file */
+    if (buf.st_nlink != 1) {
+	close(fd);
+	errno = EMLINK;
+	return -1;
+    }
+
+    /* next, This better be a regular file */
+    if (!S_ISREG(buf.st_mode)) {
+	close(fd);
+	errno = EACCES;
+	return -1;
+    }
+
+    /* if the permissions don't match, something is wrong */
+    if ((buf.st_mode & 03777) != mode) {
+	close(fd);
+	errno = EACCES;
+	return -1;
+    }
+
+    /* finally the file should be the correct size. This 
+     * check isn't so much to protect from an attack, as it is to
+     * detect a corrupted cache file */
+    if (buf.st_size != size) {
+	close(fd);
+	errno = EACCES;
+	return -1;
+    }
+
+    /* OK, the file checked out, ok to continue */
+    return fd;
+}
+
 SHMem::SHMem(): shmemData(0) {}
 
 SHMem *
@@ -259,7 +326,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	return NULL;
     }
     int mask = umask(0);
-    int ret = mkdir (MEMSEGPATH, 1777);
+    int ret = mkdir (MEMSEGPATH, 01777);
     umask(mask);
     if ((ret == -1) && (errno != EEXIST)) {
 	delete shmemData;
@@ -284,6 +351,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
     if (shmemData->fd >= 0) {
 	char *buf;
 	int len = size+RESERVED_OFFSET;
+        int ret;
 
 	buf = (char *)calloc(1,len);
 	if (!buf) {
@@ -294,11 +362,20 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	    delete shmemData;
 	    return NULL;
 	}
-	write(shmemData->fd,buf,len);
+	ret = write(shmemData->fd,buf,len);
+        if (ret != len) {
+	    unlink(shmemData->fd,buf,len);
+#ifdef FULL_CLEANUP
+	    flock(shmemData->fd, LOCK_UN);
+#endif
+	    delete shmemData;
+	    return NULL;
+	}
 	free(buf);
     } else if (errno == EEXIST) {
 	needInit = false;
-	shmemData->fd = open(shmemData->path,O_RDWR|O_EXLOCK|O_NOFOLLOW, mode);
+	shmemData->fd = safe_open(shmemData->path,O_RDWR|O_EXLOCK, mode,
+				  size+RESERVED_OFFSET);
     }
     if (shmemData->fd < 0) {
 	delete shmemData;

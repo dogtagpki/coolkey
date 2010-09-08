@@ -680,13 +680,7 @@ Slot::connectToToken()
         log->log("CoolKey Select failed 0x%x\n", status);
 	status = getCACAid();
 	if (status != CKYSUCCESS) {
-	    log->log("CAC Select failed 0x%x\n", status);
-	    if (status == CKYSCARDERR) {
-		log->log("CAC Card Failure 0x%x\n",
-				CKYCardConnection_GetLastError(conn));
-		disconnect();
-	    }
-	    return;
+	    goto loser;
 	}
 	state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
 	/* skip the read of the cuid. We really don't need it and,
