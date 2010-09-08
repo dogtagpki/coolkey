@@ -505,6 +505,10 @@ dataStart(const CKYByte *buf, unsigned int length,
     unsigned char tag;
     unsigned int used_length= 0;
 
+    if(!buf) {
+        return NULL;
+    }
+
     tag = buf[used_length++];
 
     /* blow out when we come to the end */

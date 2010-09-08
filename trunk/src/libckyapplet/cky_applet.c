@@ -41,7 +41,13 @@
 CKYStatus
 CKYAppletFactory_SelectFile(CKYAPDU *apdu, const void *param)
 {
-    return CKYAPDUFactory_SelectFile(apdu,(const CKYBuffer *)param);
+    return CKYAPDUFactory_SelectFile(apdu, 4, 0, (const CKYBuffer *)param);
+}
+
+CKYStatus
+CACAppletFactory_SelectFile(CKYAPDU *apdu, const void *param)
+{
+    return CKYAPDUFactory_SelectFile(apdu, 2, 12, (const CKYBuffer *)param);
 }
 
 CKYStatus
@@ -225,10 +231,17 @@ CKYAppletFactory_GetBuiltinACL(CKYAPDU *apdu, const void *param)
 }
 
 CKYStatus
-CACAppletFactory_SignDecrypt(CKYAPDU *apdu, const void *param)
+CACAppletFactory_SignDecryptStep(CKYAPDU *apdu, const void *param)
 {
     const CKYBuffer *buf=(CKYBuffer *)param;
-    return CACAPDUFactory_SignDecrypt(apdu, buf);
+    return CACAPDUFactory_SignDecrypt(apdu, CAC_P1_STEP, buf);
+}
+
+CKYStatus
+CACAppletFactory_SignDecryptFinal(CKYAPDU *apdu, const void *param)
+{
+    const CKYBuffer *buf=(CKYBuffer *)param;
+    return CACAPDUFactory_SignDecrypt(apdu, CAC_P1_FINAL, buf);
 }
 
 CKYStatus
@@ -243,6 +256,13 @@ CACAppletFactory_GetCertificate(CKYAPDU *apdu, const void *param)
 {
     CKYSize *size=(CKYSize*)param;
     return CACAPDUFactory_GetCertificate(apdu, *size);
+}
+
+CKYStatus
+CACAppletFactory_ReadFile(CKYAPDU *apdu, const void *param)
+{
+    const CACAppletArgReadFile *rfs = (const CACAppletArgReadFile *)param;
+    return CACAPDUFactory_ReadFile(apdu, rfs->offset, rfs->type, rfs->count);
 }
 
 CKYStatus
@@ -457,7 +477,7 @@ CKYApplet_SelectFile(CKYCardConnection *conn, const CKYBuffer *AID,
 							 CKYISOStatus *apduRC)
 {
     return CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, AID, NULL,
-		0, CKYAppletFill_Null, NULL, apduRC);
+		CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
 }
 
 static CKYByte coolkeyid[] = {0x62, 0x76, 0x01, 0xff, 0x00, 0x00, 0x00 };
@@ -477,22 +497,23 @@ CKYApplet_SelectCoolKeyManager(CKYCardConnection *conn, CKYISOStatus *apduRC)
     return ret;
 }
 
-static CKYByte CACPKIid[] = {0xa0, 0x00, 0x00, 0x00, 0x79, 0x01, 0x00 };
+static CKYByte CACPKIid[] = { 0xa0, 0x00, 0x00, 0x00, 0x79, 0x01 };
 /*
  * Select the CoolKey applet. Must happen after we start a transaction and 
  * before we issue any applet specific command.
  */
 CKYStatus
-CACApplet_SelectPKI(CKYCardConnection *conn, CKYByte instance, 
-			       CKYISOStatus *apduRC)
+CACApplet_SelectPKI(CKYCardConnection *conn, CKYBuffer *cacAID, 
+				CKYByte instance, CKYISOStatus *apduRC)
 {
     CKYStatus ret;
-    CKYBuffer CACPKIAID;
-    CKYBuffer_InitFromData(&CACPKIAID, CACPKIid, sizeof(CACPKIid));
-    CKYBuffer_SetChar(&CACPKIAID, 6, instance);
-    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, &CACPKIAID,
+    CKYBuffer_AppendData(cacAID, CACPKIid, sizeof(CACPKIid));
+    CKYBuffer_AppendChar(cacAID, instance);
+    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, cacAID,
 		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
-    CKYBuffer_FreeData(&CACPKIAID);
+    if (ret != CKYSUCCESS) {
+	CKYBuffer_Resize(cacAID, 0);
+    }
     return ret;
 }
 
@@ -515,8 +536,35 @@ CACApplet_SelectCardManager(CKYCardConnection *conn, CKYISOStatus *apduRC)
     CKYBuffer CAC_CM_AID;
     CKYBuffer_InitFromData(&CAC_CM_AID, cacmgrid, sizeof(cacmgrid));
     ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, &CAC_CM_AID,
-		 NULL, 0, CKYAppletFill_Null, NULL, apduRC);
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
     CKYBuffer_FreeData(&CAC_CM_AID);
+    return ret;
+}
+
+static CKYByte cacCCCid[] = {0xa0, 0x00, 0x00, 0x01, 0x16, 0xdb, 0x00 };
+CKYStatus
+CACApplet_SelectCCC(CKYCardConnection *conn, CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYBuffer CAC_CM_AID;
+    CKYBuffer_InitFromData(&CAC_CM_AID, cacCCCid, sizeof(cacCCCid));
+    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, &CAC_CM_AID,
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
+    CKYBuffer_FreeData(&CAC_CM_AID);
+    return ret;
+}
+
+CKYStatus
+CACApplet_SelectFile(CKYCardConnection *conn, unsigned short ef,
+						 CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYBuffer efBuf;
+    CKYBuffer_InitEmpty(&efBuf);
+    CKYBuffer_AppendShortLE(&efBuf, ef);
+    ret = CKYApplet_HandleAPDU(conn, CACAppletFactory_SelectFile, &efBuf,
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
+    CKYBuffer_FreeData(&efBuf);
     return ret;
 }
 
@@ -673,8 +721,8 @@ CKYApplet_ComputeCryptProcess(CKYCardConnection *conn, CKYByte keyNumber,
     ccd.keyNumber = keyNumber;
     ccd.location = location;
     ccd.data = data;
-    return CKYApplet_HandleAPDU(conn, CKYAppletFactory_ComputeCryptProcess, &ccd,
-	nonce, 0, CKYAppletFill_Null, NULL, apduRC);
+    return CKYApplet_HandleAPDU(conn, CKYAppletFactory_ComputeCryptProcess, 
+	&ccd, nonce, 0, CKYAppletFill_Null, NULL, apduRC);
 }
 
 /* computeCrypt returns data in the form :
@@ -832,11 +880,39 @@ CACApplet_SignDecrypt(CKYCardConnection *conn, const CKYBuffer *data,
 	 	CKYBuffer *result, CKYISOStatus *apduRC)
 {
     CKYStatus ret;
+    CKYSize dataSize = CKYBuffer_Size(data);
+    CKYOffset offset = 0;
+    CKYBuffer tmp;
 
-    ret = CKYApplet_HandleAPDU(conn, 
-			    CACAppletFactory_SignDecrypt, data, NULL, 
-			    CKYBuffer_Size(data), CKYAppletFill_ReplaceBuffer, 
+    CKYBuffer_InitEmpty(&tmp);
+
+    CKYBuffer_Resize(result, 0);
+    for(offset = 0; (dataSize-offset) > CKY_MAX_WRITE_CHUNK_SIZE; 
+				offset += CKY_MAX_WRITE_CHUNK_SIZE) {
+	CKYBuffer_Resize(&tmp,0);
+	CKYBuffer_AppendBuffer(&tmp, data, offset, CKY_MAX_WRITE_CHUNK_SIZE);
+        ret = CKYApplet_HandleAPDU(conn, CACAppletFactory_SignDecryptStep, 
+			    &tmp, NULL, CKY_SIZE_UNKNOWN, 
+			    CKYAppletFill_AppendBuffer, 
 			    result, apduRC);
+	if (ret != CKYSUCCESS) {
+	    goto done;
+	}
+    }
+    CKYBuffer_Resize(&tmp,0);
+    CKYBuffer_AppendBuffer(&tmp, data, offset, dataSize - offset);
+    ret = CKYApplet_HandleAPDU(conn, CACAppletFactory_SignDecryptFinal, 
+			    &tmp, NULL, CKY_SIZE_UNKNOWN, 
+			    CKYAppletFill_AppendBuffer, 
+			    result, apduRC);
+
+    if ((ret == CKYSUCCESS) && (CKYBuffer_Size(result) != dataSize)) {
+	/* RSA returns the same data size as input, didn't happen, so
+	 * something is wrong. */
+    }
+
+done:
+    CKYBuffer_FreeData(&tmp);
     return ret;
 }
 
@@ -895,6 +971,63 @@ CACApplet_GetCertificate(CKYCardConnection *conn, CKYBuffer *cert,
     }
     return ret;
 }
+
+/*
+ * Read a CAC Tag/Value file 
+ */
+CKYStatus
+CACApplet_ReadFile(CKYCardConnection *conn, CKYByte type, CKYBuffer *buffer, 
+		    CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYISOStatus status;
+    CKYByte maxtransfer;
+    unsigned short offset = 0;
+    unsigned short size;
+    CACAppletArgReadFile rfs;
+
+    CKYBuffer_Resize(buffer,0);
+    if (apduRC == NULL) {
+	apduRC = &status;
+    }
+    rfs.offset = 0;
+    rfs.count = 2;
+    rfs.type = type;
+
+    /* APDU's are expensive, Grab a big chunk of the file first if possible */
+    ret = CKYApplet_HandleAPDU(conn, 
+			    CACAppletFactory_ReadFile, &rfs, NULL, 
+			    rfs.count, CKYAppletFill_AppendBuffer,
+			    buffer, apduRC);
+    /* file is probably smaller than 100 bytes, get the actual size first */
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+    size = CKYBuffer_GetShortLE(buffer, 0) + 2 /* include the length itself */;
+    maxtransfer = CKY_MAX_READ_CHUNK_SIZE;
+    /* get the rest of the buffer if necessary */
+    for (offset = CKYBuffer_Size(buffer); size > offset; 
+				offset = CKYBuffer_Size(buffer)) {
+	rfs.offset = offset;
+	rfs.count = MIN(size - offset, maxtransfer);
+	ret = CKYApplet_HandleAPDU(conn, 
+			    CACAppletFactory_ReadFile, &rfs, NULL, 
+			    rfs.count, CKYAppletFill_AppendBuffer,
+			    buffer, apduRC);
+	if (ret != CKYSUCCESS) {
+	    if (*apduRC == CAC_INVALID_PARAMS) {
+		maxtransfer = maxtransfer/2;
+		if (maxtransfer == 0) {
+		    return ret;
+		}
+	    } else {
+		return ret;
+	    }
+ 	}
+    }
+    return ret;
+}
+
 CKYStatus 
 CACApplet_GetCertificateFirst(CKYCardConnection *conn, CKYBuffer *cert, 
 			CKYSize *nextSize, CKYISOStatus *apduRC)

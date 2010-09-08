@@ -86,7 +86,11 @@
 #define CAC_INS_SIGN_DECRYPT	0x42
 #define CAC_INS_VERIFY_PIN	0x20
 #define CAC_INS_GET_PROPERTIES	0x56
+#define CAC_INS_READ_FILE	0x52
+
 #define CAC_SIZE_GET_PROPERTIES	48
+#define CAC_P1_STEP		0x80
+#define CAC_P1_FINAL		0x00
 
 /*
  * Fixed return sized from various commands
@@ -169,7 +173,8 @@
 CKY_BEGIN_PROTOS
 
 /* function based factorys */
-CKYStatus CKYAPDUFactory_SelectFile(CKYAPDU *apdu, const CKYBuffer *AID);
+CKYStatus CKYAPDUFactory_SelectFile(CKYAPDU *apdu, CKYByte p1, CKYByte p2,
+				    const CKYBuffer *AID);
 CKYStatus CKYAPDUFactory_SelectCardManager(CKYAPDU *apdu);
 CKYStatus CKYAPDUFactory_GetCPLCData(CKYAPDU *apdu);
 CKYStatus CKYAPDUFactory_ListKeys(CKYAPDU *apdu, CKYByte sequence);
@@ -211,9 +216,12 @@ CKYStatus CKYAPDUFactory_SeedRandom(CKYAPDU *apdu, const CKYBuffer *data);
 CKYStatus CKYAPDUFactory_GetIssuerInfo(CKYAPDU *apdu);
 CKYStatus CKYAPDUFactory_GetBuiltinACL(CKYAPDU *apdu);
 
-CKYStatus CACAPDUFactory_SignDecrypt(CKYAPDU *apdu, const CKYBuffer *data);
+CKYStatus CACAPDUFactory_SignDecrypt(CKYAPDU *apdu, CKYByte type, 
+				     const CKYBuffer *data);
 CKYStatus CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, const char *pin);
 CKYStatus CACAPDUFactory_GetCertificate(CKYAPDU *apdu, CKYSize size);
+CKYStatus CACAPDUFactory_ReadFile(CKYAPDU *apdu, unsigned short offset, 
+				  CKYByte type, CKYByte count);
 CKYStatus CACAPDUFactory_GetProperties(CKYAPDU *apdu);
 
 CKY_END_PROTOS

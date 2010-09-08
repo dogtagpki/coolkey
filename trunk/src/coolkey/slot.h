@@ -294,6 +294,7 @@ class CryptParams {
 				 const CKYBuffer *paddedOutput) const = 0;
 };
 
+#define MAX_CERT_SLOTS 3
 class Slot {
 
   public:
@@ -328,6 +329,8 @@ class Slot {
     CKYBuffer nonce;
     CKYBuffer cardATR;
     CKYBuffer mCUID;
+    CKYBuffer cardAID[MAX_CERT_SLOTS];
+    unsigned short cardEF[MAX_CERT_SLOTS];
     bool isVersion1Key;
     bool needLogin;
     long publicFree;
@@ -335,6 +338,7 @@ class Slot {
     long privateFree;
     bool fullTokenName;
     bool mCoolkey;
+    bool mOldCAC;
 
     //enum { RW_SESSION_HANDLE = 1, RO_SESSION_HANDLE = 2 };
 
@@ -397,6 +401,11 @@ class Slot {
     list<ListObjectInfo> getObjectList();
     list<ListObjectInfo> fetchCombinedObjects(const CKYBuffer *header);
     list<ListObjectInfo> fetchSeparateObjects();
+
+    CKYStatus getCACAid();
+    CKYStatus readCACCertificateFirst(CKYBuffer *cert, CKYSize *nextSize,
+                              bool throwException);
+    CKYStatus readCACCertificateAppend(CKYBuffer *cert, CKYSize nextSize);
 
     void selectApplet();
     void selectCACApplet(CKYByte instance);

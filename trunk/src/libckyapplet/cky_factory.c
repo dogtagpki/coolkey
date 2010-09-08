@@ -25,12 +25,13 @@
  * special commands can be issued at any time 
  */
 CKYStatus
-CKYAPDUFactory_SelectFile(CKYAPDU *apdu, const CKYBuffer *AID)
+CKYAPDUFactory_SelectFile(CKYAPDU *apdu, CKYByte p1, CKYByte p2,
+			  const CKYBuffer *AID)
 {
     CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
     CKYAPDU_SetINS(apdu, CKY_INS_SELECT_FILE);
-    CKYAPDU_SetP1(apdu, 0x04);
-    CKYAPDU_SetP2(apdu, 0x00);
+    CKYAPDU_SetP1(apdu, p1);
+    CKYAPDU_SetP2(apdu, p2);
     return CKYAPDU_SetSendDataBuffer(apdu, AID);
 }
 
@@ -130,6 +131,7 @@ fail:
     CKYBuffer_FreeData(&buf);
     return ret;
 }
+
 
 CKYStatus
 CKYAPDUFactory_ComputeCryptFinal(CKYAPDU *apdu, CKYByte keyNumber, 
@@ -572,11 +574,11 @@ CKYAPDUFactory_GetBuiltinACL(CKYAPDU *apdu)
 }
 
 CKYStatus
-CACAPDUFactory_SignDecrypt(CKYAPDU *apdu, const CKYBuffer *data)
+CACAPDUFactory_SignDecrypt(CKYAPDU *apdu, CKYByte type, const CKYBuffer *data)
 {
     CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
     CKYAPDU_SetINS(apdu, CAC_INS_SIGN_DECRYPT);
-    CKYAPDU_SetP1(apdu, 0x00);
+    CKYAPDU_SetP1(apdu, type);
     CKYAPDU_SetP2(apdu, 0x00);
     return CKYAPDU_SetSendDataBuffer(apdu, data);
 }
@@ -589,6 +591,36 @@ CACAPDUFactory_GetCertificate(CKYAPDU *apdu, CKYSize size)
     CKYAPDU_SetP1(apdu, 0x00);
     CKYAPDU_SetP2(apdu, 0x00);
     return CKYAPDU_SetReceiveLen(apdu, size);
+}
+
+CKYStatus
+CACAPDUFactory_ReadFile(CKYAPDU *apdu, unsigned short offset, 	
+					CKYByte type, CKYByte count)
+{
+    CKYStatus ret;
+    CKYBuffer buf;
+
+    CKYBuffer_InitEmpty(&buf);
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_GLOBAL_PLATFORM);
+    CKYAPDU_SetINS(apdu, CAC_INS_READ_FILE);
+    CKYAPDU_SetP1(apdu, (offset >> 8) & 0xff);
+    CKYAPDU_SetP2(apdu, offset & 0xff);
+    ret = CKYBuffer_Reserve(&buf, 2);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    }
+    ret = CKYBuffer_AppendChar(&buf, type);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    }
+    ret = CKYBuffer_AppendChar(&buf, count);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    } 
+    ret = CKYAPDU_SetSendDataBuffer(apdu, &buf);
+fail:
+    CKYBuffer_FreeData(&buf);
+    return ret;
 }
 
 CKYStatus

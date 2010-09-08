@@ -220,6 +220,22 @@ CKYBuffer_AppendShort(CKYBuffer *buf, unsigned short val)
     return CKYSUCCESS;
 }
 
+/* append a short in network order */
+CKYStatus
+CKYBuffer_AppendShortLE(CKYBuffer *buf, unsigned short val)
+{
+    CKYStatus ret;
+
+    ret = CKYBuffer_Reserve(buf, buf->len + 2);
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+    buf->data[buf->len+1] = (CKYByte) ((val >> 8) & 0xff);
+    buf->data[buf->len+0] = (CKYByte) ((val >> 0) & 0xff);
+    buf->len += 2;
+    return CKYSUCCESS;
+}
+
 /* append a long in applet order */
 CKYStatus
 CKYBuffer_AppendLong(CKYBuffer *buf, unsigned long val)
@@ -234,6 +250,24 @@ CKYBuffer_AppendLong(CKYBuffer *buf, unsigned long val)
     buf->data[buf->len+1] = (CKYByte) ((val >> 16) & 0xff);
     buf->data[buf->len+2] = (CKYByte) ((val >>  8) & 0xff);
     buf->data[buf->len+3] = (CKYByte) ((val >>  0) & 0xff);
+    buf->len += 4;
+    return CKYSUCCESS;
+}
+
+/* append a long in applet order */
+CKYStatus
+CKYBuffer_AppendLongLE(CKYBuffer *buf, unsigned long val)
+{
+    CKYStatus ret;
+
+    ret = CKYBuffer_Reserve(buf, buf->len + 4);
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+    buf->data[buf->len+3] = (CKYByte) ((val >> 24) & 0xff);
+    buf->data[buf->len+2] = (CKYByte) ((val >> 16) & 0xff);
+    buf->data[buf->len+1] = (CKYByte) ((val >>  8) & 0xff);
+    buf->data[buf->len+0] = (CKYByte) ((val >>  0) & 0xff);
     buf->len += 4;
     return CKYSUCCESS;
 }
@@ -351,6 +385,22 @@ CKYBuffer_SetShort(CKYBuffer *buf, CKYOffset offset, unsigned short val)
 }
 
 CKYStatus
+CKYBuffer_SetShortLE(CKYBuffer *buf, CKYOffset offset, unsigned short val)
+{
+    CKYStatus ret;
+
+    if (buf->len < offset+2) {
+	ret = CKYBuffer_Resize(buf,offset+2);
+	if (ret != CKYSUCCESS) {
+	    return ret;
+	}
+    }
+    buf->data[offset+1] = (CKYByte) ((val >> 8) & 0xff);
+    buf->data[offset+0] = (CKYByte) ((val >> 0) & 0xff);
+    return CKYSUCCESS;
+}
+
+CKYStatus
 CKYBuffer_SetLong(CKYBuffer *buf, CKYOffset offset, unsigned long val)
 {
     CKYStatus ret;
@@ -365,6 +415,24 @@ CKYBuffer_SetLong(CKYBuffer *buf, CKYOffset offset, unsigned long val)
     buf->data[offset+1] = (CKYByte) ((val >> 16) & 0xff);
     buf->data[offset+2] = (CKYByte) ((val >>  8) & 0xff);
     buf->data[offset+3] = (CKYByte) ((val >>  0) & 0xff);
+    return CKYSUCCESS;
+}
+
+CKYStatus
+CKYBuffer_SetLongLE(CKYBuffer *buf, CKYOffset offset, unsigned long val)
+{
+    CKYStatus ret;
+
+    if (buf->len < offset+4) {
+	ret = CKYBuffer_Resize(buf,offset+4);
+	if (ret != CKYSUCCESS) {
+	    return ret;
+	}
+    }
+    buf->data[offset+3] = (CKYByte) ((val >> 24) & 0xff);
+    buf->data[offset+2] = (CKYByte) ((val >> 16) & 0xff);
+    buf->data[offset+1] = (CKYByte) ((val >>  8) & 0xff);
+    buf->data[offset+0] = (CKYByte) ((val >>  0) & 0xff);
     return CKYSUCCESS;
 }
 
@@ -388,6 +456,18 @@ CKYBuffer_GetShort(const CKYBuffer *buf, CKYOffset offset)
     val |= ((unsigned short)buf->data[offset+1]) << 0;
     return val;
 }
+
+unsigned short
+CKYBuffer_GetShortLE(const CKYBuffer *buf, CKYOffset offset)
+{
+    unsigned short val;
+    if (buf->len < offset+2) {
+	return 0;
+    }
+    val  = ((unsigned short)buf->data[offset+1]) << 8;
+    val |= ((unsigned short)buf->data[offset+0]) << 0;
+    return val;
+}
 	
 unsigned long
 CKYBuffer_GetLong(const CKYBuffer *buf, CKYOffset offset)
@@ -400,6 +480,20 @@ CKYBuffer_GetLong(const CKYBuffer *buf, CKYOffset offset)
     val |= ((unsigned long)buf->data[offset+1]) << 16;
     val |= ((unsigned long)buf->data[offset+2]) << 8;
     val |= ((unsigned long)buf->data[offset+3]) << 0;
+    return val;
+}
+
+unsigned long
+CKYBuffer_GetLongLE(const CKYBuffer *buf, CKYOffset offset)
+{
+    unsigned long val;
+    if (buf->len < offset+4) {
+	return 0;
+    }
+    val  = ((unsigned long)buf->data[offset+3]) << 24;
+    val |= ((unsigned long)buf->data[offset+2]) << 16;
+    val |= ((unsigned long)buf->data[offset+1]) << 8;
+    val |= ((unsigned long)buf->data[offset+0]) << 0;
     return val;
 }
 	

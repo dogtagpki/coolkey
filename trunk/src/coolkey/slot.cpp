@@ -372,7 +372,7 @@ Slot::Slot(const char *readerName_, Log *log_, CKYCardContext* context_)
     : log(log_), readerName(NULL), personName(NULL), manufacturer(NULL),
 	slotInfoFound(false), context(context_), conn(NULL), state(UNKNOWN), 
 	isVersion1Key(false), needLogin(false), fullTokenName(false), 
-	mCoolkey(false),
+	mCoolkey(false), mOldCAC(false),
 #ifdef USE_SHMEM
 	shmem(readerName_),
 #endif
@@ -412,6 +412,9 @@ Slot::Slot(const char *readerName_, Log *log_, CKYCardContext* context_)
     }
     CKYBuffer_InitEmpty(&cardATR);
     CKYBuffer_InitEmpty(&mCUID);
+    for (int i=0; i < MAX_CERT_SLOTS; i++) {
+	CKYBuffer_InitEmpty(&cardAID[i]);
+    }
   } catch(PKCS11Exception &) {
 	if (conn) {
 	    CKYCardConnection_Destroy(conn);
@@ -479,6 +482,9 @@ Slot::~Slot()
     CKYBuffer_FreeData(&nonce);
     CKYBuffer_FreeData(&cardATR);
     CKYBuffer_FreeData(&mCUID);
+    for (int i=0; i < MAX_CERT_SLOTS; i++) {
+	CKYBuffer_FreeData(&cardAID[i]);
+    }
 }
 
 template <class C>
@@ -583,6 +589,7 @@ Slot::connectToToken()
     if( ! CKYCardConnection_IsConnected(conn) ) {
         int i = 0;
     //for cranky readers try again a few more times
+        status = CKYSCARDERR;
         while( i++ < 5 && status != CKYSUCCESS )
         {
             status = CKYCardConnection_Connect(conn, readerName);
@@ -671,12 +678,12 @@ Slot::connectToToken()
     status = CKYApplet_SelectCoolKeyManager(conn, NULL);
     if (status != CKYSUCCESS) {
         log->log("CoolKey Select failed 0x%x\n", status);
-	status = CACApplet_SelectPKI(conn, 0, NULL);
+	status = getCACAid();
 	if (status != CKYSUCCESS) {
-            log->log("CAC Select failed 0x%x\n", status);
+	    log->log("CAC Select failed 0x%x\n", status);
 	    if (status == CKYSCARDERR) {
-		log->log("CAC Card Failure 0x%x\n", 
-			CKYCardConnection_GetLastError(conn));
+		log->log("CAC Card Failure 0x%x\n",
+				CKYCardConnection_GetLastError(conn));
 		disconnect();
 	    }
 	    return;
@@ -689,6 +696,15 @@ Slot::connectToToken()
 	isVersion1Key = 0;
 	needLogin = 1;
         mCoolkey = 0;
+	return;
+loser:
+	log->log("CAC Select failed 0x%x\n", status);
+	if (status == CKYSCARDERR) {
+	    log->log("CAC Card Failure 0x%x\n",
+			CKYCardConnection_GetLastError(conn));
+	    disconnect();
+	}
+
 
 	return;
     }
@@ -772,16 +788,110 @@ Slot::disconnect()
     invalidateLogin(false);
 }
 
+CKYStatus
+Slot::getCACAid()
+{
+    CKYBuffer tBuf;
+    CKYBuffer vBuf;
+    CKYSize tlen, vlen;
+    CKYOffset toffset, voffset;
+    int certSlot = 0;
+    int i,length = 0;
+    CKYStatus status;
+
+    CKYBuffer_InitEmpty(&tBuf);
+    CKYBuffer_InitEmpty(&vBuf);
+
+    /* clear out the card AID's */
+    for (i=0; i < MAX_CERT_SLOTS; i++) {
+	CKYBuffer_Resize(&cardAID[i],0);
+    }
+
+    status = CACApplet_SelectCCC(conn,NULL);
+    if (status != CKYSUCCESS) {
+	/* are we an old CAC */
+	status = CACApplet_SelectPKI(conn, &cardAID[0], 0, NULL);
+	if (status != CKYSUCCESS) {
+	   /* no, just fail */
+	   return status;
+	}
+	/* yes, fill in the old applets */
+	mOldCAC = true;
+	for (i=1; i< MAX_CERT_SLOTS; i++) {
+	    CACApplet_SelectPKI(conn, &cardAID[i], i, NULL);
+	}
+	return CKYSUCCESS;
+    }
+    /* definately not an old CAC */
+    mOldCAC = false;
+
+    /* read the TLV */
+    status = CACApplet_ReadFile(conn, CAC_TAG_FILE, &tBuf, NULL);
+    if (status != CKYSUCCESS) {
+	goto done;
+    }
+    status = CACApplet_ReadFile(conn, CAC_VALUE_FILE, &vBuf, NULL);
+    if (status != CKYSUCCESS) {
+	goto done;
+    }
+    tlen = CKYBuffer_Size(&tBuf);
+    vlen = CKYBuffer_Size(&vBuf);
+
+    for(toffset = 2, voffset=2; 
+	certSlot < MAX_CERT_SLOTS && toffset < tlen && voffset < vlen ; 
+		voffset += length) {
+
+	CKYByte tag = CKYBuffer_GetChar(&tBuf, toffset);
+	length = CKYBuffer_GetChar(&tBuf, toffset+1);
+	toffset += 2;
+	if (length == 0xff) {
+	    length = CKYBuffer_GetShortLE(&tBuf, toffset);
+	    toffset +=2;
+	}
+	if (tag != CAC_TAG_CARDURL) {
+	    continue;
+	}
+	/* CARDURL tags must be at least 10 bytes long */
+	if (length < 10) {
+	    continue;
+	}
+	/* check the app type, should be TLV_APP_PKI */
+	if (CKYBuffer_GetChar(&vBuf, voffset+5) != CAC_TLV_APP_PKI) {
+	    continue;
+	}
+	status = CKYBuffer_AppendBuffer(&cardAID[certSlot], &vBuf, voffset, 5);
+	if (status != CKYSUCCESS) {
+	    goto done;
+	}
+	status = CKYBuffer_AppendBuffer(&cardAID[certSlot], &vBuf, 
+								voffset+8, 2);
+	if (status != CKYSUCCESS) {
+	    goto done;
+	}
+	cardEF[certSlot] = CKYBuffer_GetShortLE(&vBuf, voffset+6);
+
+	certSlot++;
+    }
+    status = CKYSUCCESS;
+    if (certSlot == 0) {
+	status = CKYAPDUFAIL; /* probably neeed a beter error code */
+    }
+
+done:
+    CKYBuffer_FreeData(&tBuf);
+    CKYBuffer_FreeData(&vBuf);
+    return status;
+}
+
 void
 Slot::refreshTokenState()
 {
     if( cardStateMayHaveChanged() ) {
-log->log("card changed\n");
+        log->log("card changed\n");
 	invalidateLogin(true);
         closeAllSessions();
 	unloadObjects();
         connectToToken();
-
 
         if( state & APPLET_PERSONALIZED ) {
             try {
@@ -1020,7 +1130,7 @@ Slot::makeModelString(char *model, int maxSize, const unsigned char *cuid)
 
 struct _manList {
      unsigned short type;
-     char *string;
+     const char *string;
 };
 
 static const struct _manList  manList[] = {
@@ -1281,10 +1391,27 @@ void
 Slot::selectCACApplet(CKYByte instance)
 {
     CKYStatus status;
-    status = CACApplet_SelectPKI(conn, instance, NULL);
+    CKYBuffer *aid = &cardAID[instance];
+
+    if (CKYBuffer_Size(aid) == 0) {
+        disconnect();
+        throw PKCS11Exception(CKR_DEVICE_REMOVED);
+	return;
+    }
+    
+    status = CKYApplet_SelectFile(conn, aid, NULL);
     if ( status == CKYSCARDERR ) handleConnectionError();
     if ( status != CKYSUCCESS) {
         // could not select applet: this just means it's not there
+        disconnect();
+        throw PKCS11Exception(CKR_DEVICE_REMOVED);
+    }
+    if (mOldCAC) {
+	return;
+    }
+    status = CACApplet_SelectFile(conn, cardEF[instance], NULL);
+    if ( status == CKYSCARDERR ) handleConnectionError();
+    if ( status != CKYSUCCESS) {
         disconnect();
         throw PKCS11Exception(CKR_DEVICE_REMOVED);
     }
@@ -2060,10 +2187,90 @@ Slot::fetchCombinedObjects(const CKYBuffer *header)
     return objInfoList;
 }
 
+CKYStatus
+Slot::readCACCertificateFirst(CKYBuffer *cert, CKYSize *nextSize, 
+			      bool throwException)
+{
+    CKYStatus status;
+    CKYISOStatus apduRC;
+    *nextSize = 0;
+
+    if (mOldCAC) {
+	/* get the first 100 bytes of the cert */
+	status = CACApplet_GetCertificateFirst(conn, cert, nextSize, &apduRC);
+	if (throwException && (status != CKYSUCCESS)) {
+	    handleConnectionError();
+	}
+        
+        if(CKYBuffer_Size(cert) == 0) {
+            handleConnectionError();
+        }
+	return status;
+    }
+
+    CKYBuffer tBuf;
+    CKYBuffer vBuf;
+    CKYSize tlen, vlen;
+    CKYOffset toffset, voffset;
+    int length = 0;
+
+    CKYBuffer_InitEmpty(&tBuf);
+    CKYBuffer_InitEmpty(&vBuf);
+    CKYBuffer_Resize(cert, 0);
+
+    /* handle the new CAC card read */
+    /* read the TLV */
+    status = CACApplet_ReadFile(conn, CAC_TAG_FILE, &tBuf, NULL);
+    if (status != CKYSUCCESS) {
+	goto done;
+    }
+    status = CACApplet_ReadFile(conn, CAC_VALUE_FILE, &vBuf, NULL);
+    if (status != CKYSUCCESS) {
+	goto done;
+    }
+    tlen = CKYBuffer_Size(&tBuf);
+    vlen = CKYBuffer_Size(&vBuf);
+
+    /* look for the Cert out of the TLV */
+    for(toffset = 2, voffset=2; toffset < tlen && voffset < vlen ; 
+		voffset += length) {
+
+	CKYByte tag = CKYBuffer_GetChar(&tBuf, toffset);
+	length = CKYBuffer_GetChar(&tBuf, toffset+1);
+	toffset += 2;
+	if (length == 0xff) {
+	    length = CKYBuffer_GetShortLE(&tBuf, toffset);
+	    toffset +=2;
+	}
+	if (tag != CAC_TAG_CERTIFICATE) {
+	    continue;
+	}
+	CKYBuffer_AppendBuffer(cert, &vBuf, voffset, length);
+	break;
+    }
+    status = CKYSUCCESS;
+
+done:
+    CKYBuffer_FreeData(&tBuf);
+    CKYBuffer_FreeData(&vBuf);
+    return status;
+}
+
+/*
+ * only necessary for old CAC cards. New CAC cards have to read the
+ * whole cert in anyway above....
+ */
+CKYStatus
+Slot::readCACCertificateAppend(CKYBuffer *cert, CKYSize nextSize)
+{
+    CKYISOStatus apduRC;
+    assert(mOldCAC);
+    return CACApplet_GetCertificateAppend(conn, cert, nextSize, &apduRC);
+}
+
 void
 Slot::loadCACCert(CKYByte instance)
 {
-    CKYISOStatus apduRC;
     CKYStatus status = CKYSUCCESS;
     CKYBuffer cert;
     CKYBuffer rawCert;
@@ -2098,12 +2305,10 @@ Slot::loadCACCert(CKYByte instance)
 						 instance, OSTimeNow() - time);
 
     if (instance == 0) {
-	/* get the first 100 bytes of the cert */
-	status = CACApplet_GetCertificateFirst(conn, &rawCert, 
-						&nextSize, &apduRC);
-	if (status != CKYSUCCESS) {
-	    handleConnectionError();
-	}
+        readCACCertificateFirst(&rawCert, &nextSize, true);
+        if(CKYBuffer_Size(&rawCert) == 0) {
+             handleConnectionError();
+        }
 	log->log("CAC Cert %d: fetch CAC Cert:  %d ms\n", 
 						instance, OSTimeNow() - time);
     }
@@ -2144,8 +2349,7 @@ Slot::loadCACCert(CKYByte instance)
 	    shmem.setVersion(SHMEM_VERSION);
 	    shmem.setDataVersion(dataVersion);
 	} else {
-	    status = CACApplet_GetCertificateFirst(conn, &rawCert, 
-						&nextSize, &apduRC);
+	    status = readCACCertificateFirst(&rawCert, &nextSize, false);
 	
 	    if (status != CKYSUCCESS) {
 		/* CAC only requires the Certificate in pki '0' */
@@ -2160,8 +2364,7 @@ Slot::loadCACCert(CKYByte instance)
 	}
 
 	if (nextSize) {
-	    status = CACApplet_GetCertificateAppend(conn, &rawCert, 
-						nextSize, &apduRC);
+	    status = readCACCertificateAppend(&rawCert, nextSize);
 	}
 	log->log("CAC Cert %d: Fetch rest :  %d ms\n", 
 						instance, OSTimeNow() - time);
@@ -2177,9 +2380,10 @@ Slot::loadCACCert(CKYByte instance)
 
     log->log("CAC Cert %d: Cert has been read:  %d ms\n",
 						instance, OSTimeNow() - time);
-    if (CKYBuffer_GetChar(&rawCert,0) == 1) {
+    if (!mOldCAC || CKYBuffer_GetChar(&rawCert,0) == 1) {
 	CKYSize guessFinalSize = CKYBuffer_Size(&rawCert);
 	CKYSize certSize = 0;
+	CKYOffset offset = mOldCAC ? 1 : 0;
 	int zret = Z_MEM_ERROR;
 
 	do {
@@ -2190,7 +2394,8 @@ Slot::loadCACCert(CKYByte instance)
 	    }
 	    certSize = guessFinalSize;
 	    zret = uncompress((Bytef *)CKYBuffer_Data(&cert),&certSize,
-			CKYBuffer_Data(&rawCert)+1, CKYBuffer_Size(&rawCert)-1);
+			CKYBuffer_Data(&rawCert)+offset, 
+			CKYBuffer_Size(&rawCert)-offset);
 	} while (zret == Z_BUF_ERROR);
 
 	if (zret != Z_OK) {
@@ -2527,7 +2732,7 @@ Slot::attemptCACLogin()
     switch( result ) {
       case CKYISO_SUCCESS:
         break;
-      case 6981:
+      case 0x6981:
         throw PKCS11Exception(CKR_PIN_LOCKED);
       default:
 	if ((result & 0xff00) == 0x6300) {
@@ -3206,6 +3411,10 @@ retry:
         status = CKYApplet_ComputeCrypt(conn, keyNum, CKY_RSA_NO_PAD, direction,
 		input, NULL, output, getNonce(), &result);
     } 
+    /* map the ISO not logged in code to the coolkey one */
+    if (status == CKYISO_CONDITION_NOT_SATISFIED) {
+	status = (CKYStatus) CKYISO_UNAUTHORIZED;
+    }
     if (status != CKYSUCCESS) {
 	if ( status == CKYSCARDERR ) {
 	    handleConnectionError();
