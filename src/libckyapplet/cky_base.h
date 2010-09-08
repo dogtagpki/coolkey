@@ -170,8 +170,14 @@ CKYStatus CKYBuffer_AppendChar(CKYBuffer *buf, CKYByte b);
 /* append a short in applet order */
 CKYStatus CKYBuffer_AppendShort(CKYBuffer *buf, unsigned short val);
 
+/* append a short in little endian order */
+CKYStatus CKYBuffer_AppendShortLE(CKYBuffer *buf, unsigned short val);
+
 /* append a long in applet order */
 CKYStatus CKYBuffer_AppendLong(CKYBuffer *buf, unsigned long val);
+
+/* append a long in little endian order */
+CKYStatus CKYBuffer_AppendLongLE(CKYBuffer *buf, unsigned long val);
 
 /* append data. the data starts at data and extends len bytes */
 CKYStatus CKYBuffer_AppendData(CKYBuffer *buf, const CKYByte *data, CKYSize len);
@@ -210,12 +216,18 @@ CKYStatus CKYBuffer_SetChars(CKYBuffer *buf, CKYOffset offset,
 CKYStatus CKYBuffer_SetShort(CKYBuffer *buf, CKYOffset offset, unsigned short val);
 CKYStatus CKYBuffer_SetLong(CKYBuffer *buf, CKYOffset offset, unsigned long val);
 
+/* These functions work in little endian order */
+CKYStatus CKYBuffer_SetShortLE(CKYBuffer *buf, CKYOffset offset, unsigned short val);
+CKYStatus CKYBuffer_SetLongLE(CKYBuffer *buf, CKYOffset offset, unsigned long val);
 /* read a character from offset. If offset is beyond the end of the buffer,
  * then the function returns '0' */
 CKYByte CKYBuffer_GetChar(const CKYBuffer *buf, CKYOffset offset);
 /* These functions work in applet order */
 unsigned short CKYBuffer_GetShort(const CKYBuffer *buf, CKYOffset offset);
 unsigned long CKYBuffer_GetLong(const CKYBuffer *buf, CKYOffset offset);
+/* These functions work in little endian order */
+unsigned short CKYBuffer_GetShortLE(const CKYBuffer *buf, CKYOffset offset);
+unsigned long CKYBuffer_GetLongLE(const CKYBuffer *buf, CKYOffset offset);
 
 /* clear out all the data in a buffer */
 void CKYBuffer_Zero(CKYBuffer *buf);
