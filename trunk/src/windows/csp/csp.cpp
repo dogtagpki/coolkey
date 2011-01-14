@@ -165,9 +165,14 @@ CPAcquireContext(
 
       context->CKAID_.HexToBin();
 
-      LOG("Container name: \"%s\"\n", &context->containerName_[0]);
-      LOG("CKA_ID: %s \"%s\"\n", StringifyBin(context->CKAID_).c_str(),
-         StringifyBin(context->CKAID_, false).c_str());
+      if (context->containerName_.size()) {
+         LOG("Container name: \"%s\"\n", &context->containerName_[0]);
+      }
+
+      if (context->CKAID_.size()) {
+         LOG("CKA_ID: %s \"%s\"\n", StringifyBin(context->CKAID_).c_str(),
+            StringifyBin(context->CKAID_, false).c_str());
+      }
 
       if (!context->silent_ && !context->verifyContext_)
       {
