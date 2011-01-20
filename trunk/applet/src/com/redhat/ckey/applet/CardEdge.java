@@ -122,9 +122,9 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MAJOR = 1;
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
-    private static final byte VERSION_APPLET_MINOR = 3;
-    private static final short BUILDID_MAJOR = (short) 0x4734;
-    private static final short BUILDID_MINOR = (short) 0xb002;
+    private static final byte VERSION_APPLET_MINOR = 4;
+    private static final short BUILDID_MAJOR = (short) 0x4d38;
+    private static final short BUILDID_MINOR = (short) 0x7a3f;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -405,17 +405,18 @@ public class CardEdge extends Applet
 
     private static final short OFFSET_IMP_KEY_ENC_WRAP_KEY      =  5;
 
-    private static final short MAX_RSA_MOD_BITS  = 1024;
-    private static final short MAX_RSA_MOD_BYTES = 128;
+    private static final short MAX_RSA_MOD_BITS  = 2048;
+    private static final short MAX_RSA_MOD_BYTES = 256;
 
     // 554 = 2 bytes for explicit length, 
     //     512 bytes for data
     //      40 bytes for two sha digest buffers.
-    private static final short IOBUF_ALLOC = 554;
+    //private static final short IOBUF_ALLOC = 554;
+    private static final short IOBUF_ALLOC =  1200;
     // offsets in iobuf used by CryptProcessFinal()
-    private static final short VFY_OFF   = 258;
-    private static final short VFY_MD_0  = 514;
-    private static final short VFY_MD_1  = 534;
+    private static final short VFY_OFF   = 558;
+    private static final short VFY_MD_0  = 1014;
+    private static final short VFY_MD_1  = 1034;
 
     // how many ms to delay when a bad password is detected
     private static final short BAD_PASSWD_DELAY = 1000; 
@@ -484,6 +485,7 @@ public class CardEdge extends Applet
     private byte[]        keyTries;       // persistent
     private byte[]        issuerInfo;     // persistent
 
+
     /**
      * Instance variable array declarations - TRANSIENT
      * Allocated by JCSystem.makeTransientXxxxxArray calls below.
@@ -507,7 +509,7 @@ public class CardEdge extends Applet
         //Save offset of the instance aid length.
         byte remainingLength = bLength;
 
-	short mem_size = (short)6000;
+	short mem_size = (short)5000;
 	create_object_ACL = RA_ACL;
 	create_key_ACL = RA_ACL;
 	create_pin_ACL = RA_ACL;
@@ -1932,16 +1934,18 @@ public class CardEdge extends Applet
 
     private void Logout(APDU apdu, byte[] buffer) 
     {
-	byte lc = buffer[ISO7816.OFFSET_LC];
-	if( lc != 0 )
-	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        //Disable exceptions below to appease Gemalto 64K USB key
+	//byte lc = buffer[ISO7816.OFFSET_LC];
+	//if( lc != 0 )
+	//    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 
 	byte logoutID = buffer[ISO7816.OFFSET_P1];
 	
 
-	if ((authenticated_id & (short)(1 << logoutID)) == 0) {
-	    ISOException.throwIt(SW_UNAUTHORIZED);
-	}
+       //if ((authenticated_id & (short)(1 << logoutID)) == 0) {
+       //    ISOException.throwIt(SW_UNAUTHORIZED);
+       //}
+
 	LogoutOneIdentity(logoutID);
     }
 
@@ -2050,12 +2054,12 @@ public class CardEdge extends Applet
 	LogoutAllIdentity(pin_nb);
     }
 
-    private short outputRSAPublicKey(short key_nb, byte[] buf, short offset) {
+    private short outputRSAPublicKey(short key_nb, byte[] buf, short offset, short key_size) {
 	buf[offset] = ZEROB; // plaintext
 	offset++;
 	buf[offset] = (byte) 1; // RSA public key
 	offset++;
-	Util.setShort(buf, offset, (short)(1024)); // 1024-bit key
+	Util.setShort(buf, offset, (short)(key_size)); // Key Size. 
 	offset+=2;
 
 	RSAPublicKey key = (RSAPublicKey) keys[key_nb];
@@ -2079,6 +2083,7 @@ public class CardEdge extends Applet
 	byte owner = (byte) ((buffer[ISO7816.OFFSET_P1] >> 4)  & 0xf) ;
 	byte usage = (byte) ((buffer[ISO7816.OFFSET_P2] >> 4) & 0xf);
 	short acl = 0;
+        short key_size = Util.getShort(buffer, (short)(ISO7816.OFFSET_CDATA+1));
 
 	if ((buffer[ISO7816.OFFSET_P1] == 0) 
 					&& (buffer[ISO7816.OFFSET_P2] == 0)) {
@@ -2127,7 +2132,9 @@ public class CardEdge extends Applet
 	GenerateKeyPairRSA(apdu, buffer, prv_key_nb, pub_key_nb, acl);
 
 	// copy public key to output object
-	short pubkeysize = outputRSAPublicKey(pub_key_nb, iobuf, (short)2);
+	short pubkeysize = outputRSAPublicKey(pub_key_nb, iobuf, (short)2, (short) key_size);
+	short modsize = (short) ((short)key_size / (short) 8);
+
 	Util.setShort(iobuf, ZEROS, pubkeysize);
 
 	// Compute digest over public key and decrypted challenge.
@@ -2135,31 +2142,32 @@ public class CardEdge extends Applet
 	Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,
 				(short)(2 + pubkeysize), (short)16);
 	doDigest(iobuf, (short)2, (short)(16+pubkeysize),
-		 iobuf, (short)(2+pubkeysize+128) );
-
+		 iobuf, (short)(2+pubkeysize+modsize) );
 	// Sign the digest, writing the signature over the digest in the iobuf
-	short sigsize = handSign(prv_key_nb, iobuf, (short) (2+pubkeysize+128),
-	    (short)shaDigest.getLength(), iobuf, (short)(2+pubkeysize+2));
+	short sigsize = handSign(prv_key_nb, iobuf, (short) (2+pubkeysize+modsize),
+	    (short)shaDigest.getLength(), iobuf, (short)(2+pubkeysize+2), modsize);
+
 	Util.setShort(iobuf, (short)(2 + pubkeysize), sigsize);
 
 	iobuf_size = (short) (2 + pubkeysize + 2 + sigsize);
 
 	Util.setShort(buffer, ZEROS, iobuf_size);
 	apdu.setOutgoingAndSend(ZEROS, (short)2);
+
     }
 
     //
     // HandSign hard codes SHA1.
     //
     private short handSign(byte key_nb, byte inbuf[], short inOffset, 
-			short len, byte outbuf[], short outOffset)
+			short len, byte outbuf[], short outOffset, short modsize)
     {
 	short index;
 	//
 	// build the signed data
 	//
 	// Hard coded for SHA1
-	index = (short)(outOffset+108);
+	index = (short)(outOffset+modsize-(short)20);
 	Util.arrayCopyNonAtomic(inbuf, inOffset, outbuf, index, (short)20);
 	index = (short) (index - sha1encodeLen);
 	Util.arrayCopyNonAtomic(sha1encode,ZEROS,outbuf,index,sha1encodeLen);
@@ -2171,7 +2179,7 @@ public class CardEdge extends Applet
 	outbuf[outOffset] = 0;
 	Cipher ciph = getCipher(key_nb, Cipher.ALG_RSA_NOPAD);
 	ciph.init(keys[key_nb], (byte) Cipher.MODE_ENCRYPT);
-	return ciph.doFinal(outbuf, outOffset, (short)128, 
+	return ciph.doFinal(outbuf, outOffset, modsize, 
 				   outbuf, outOffset);
     }
 	
@@ -2784,7 +2792,7 @@ public class CardEdge extends Applet
 	case INS_DELETE_OBJ:
 	case INS_READ_OBJ:
 	case INS_WRITE_OBJ:
-	case INS_LOGOUT:
+//	case INS_LOGOUT:
 	    ret = true;
 	}
 	return ret;
@@ -2793,7 +2801,7 @@ public class CardEdge extends Applet
     private void initTransient()
     {
 	iobuf = JCSystem.makeTransientByteArray(IOBUF_ALLOC,
-		    JCSystem.CLEAR_ON_DESELECT);
+        		    JCSystem.CLEAR_ON_DESELECT);
 	ciph_dirs = JCSystem.makeTransientByteArray(MAX_NUM_KEYS,
 		    JCSystem.CLEAR_ON_DESELECT);
 	//
@@ -2821,7 +2829,7 @@ public class CardEdge extends Applet
 	if (requireAuth(ins)) {
 	    verifySecureNonce(apdu, buffer);
 	}
- 
+
 	switch(ins)
 	{
 	case INS_IMPORT_KEY:

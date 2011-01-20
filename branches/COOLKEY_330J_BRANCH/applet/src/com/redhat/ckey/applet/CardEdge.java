@@ -123,8 +123,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x498f;
-    private static final short BUILDID_MINOR = (short) 0xa85f;
+    private static final short BUILDID_MAJOR = (short) 0x4d38;
+    private static final short BUILDID_MINOR = (short) 0x7a28;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -1935,16 +1935,18 @@ public class CardEdge extends Applet
 
     private void Logout(APDU apdu, byte[] buffer) 
     {
-	byte lc = buffer[ISO7816.OFFSET_LC];
-	if( lc != 0 )
-	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        //Disable exceptions below to appease Gemalto 64K USB key
+	//byte lc = buffer[ISO7816.OFFSET_LC];
+	//if( lc != 0 )
+	//    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 
 	byte logoutID = buffer[ISO7816.OFFSET_P1];
 	
 
-	if ((authenticated_id & (short)(1 << logoutID)) == 0) {
-	    ISOException.throwIt(SW_UNAUTHORIZED);
-	}
+       //if ((authenticated_id & (short)(1 << logoutID)) == 0) {
+       //    ISOException.throwIt(SW_UNAUTHORIZED);
+       //}
+
 	LogoutOneIdentity(logoutID);
     }
 
@@ -2791,7 +2793,7 @@ public class CardEdge extends Applet
 	case INS_DELETE_OBJ:
 	case INS_READ_OBJ:
 	case INS_WRITE_OBJ:
-	case INS_LOGOUT:
+//	case INS_LOGOUT:
 	    ret = true;
 	}
 	return ret;
@@ -2828,7 +2830,7 @@ public class CardEdge extends Applet
 	if (requireAuth(ins)) {
 	    verifySecureNonce(apdu, buffer);
 	}
- 
+
 	switch(ins)
 	{
 	case INS_IMPORT_KEY:
