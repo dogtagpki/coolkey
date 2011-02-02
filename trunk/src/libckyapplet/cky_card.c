@@ -27,6 +27,12 @@
 
 #ifndef WINAPI
 #define WINAPI
+/*
+ * The Mac needs this typedef to compile.
+*/
+#ifdef MAC
+typedef SCARD_READERSTATE *LPSCARD_READERSTATE;
+#endif
 #endif
 
 #ifndef SCARD_E_NO_READERS_AVAILABLE
