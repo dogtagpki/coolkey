@@ -237,9 +237,14 @@ SlotList::updateReaderList()
 
     CKYStatus status = CKYCardContext_ListReaders(context, &readerNames);
     if ( status != CKYSUCCESS ) {
-	throw PKCS11Exception(CKR_GENERAL_ERROR,
-                "Failed to list readers: 0x%x\n", 
-				CKYCardContext_GetLastError(context));
+	/* if the service is stopped, treat it as if we have no readers */
+ 	if ((CKYCardContext_GetLastError(context) != SCARD_E_NO_SERVICE) && 
+	    (CKYCardContext_GetLastError(context) != SCARD_E_SERVICE_STOPPED)) {
+	    throw PKCS11Exception(CKR_GENERAL_ERROR,
+                 "Failed to list readers: 0x%x\n", 
+ 				CKYCardContext_GetLastError(context));
+	}
+
     }
 
     if (!readerStates) {
@@ -1286,7 +1291,9 @@ SlotList::waitForSlotEvent(CK_FLAGS flag, CK_SLOT_ID_PTR slotp, CK_VOID_PTR res)
         #endif
     } while ((status == CKYSUCCESS) ||
        (CKYCardContext_GetLastError(context) == SCARD_E_TIMEOUT) ||
-        ( CKYCardContext_GetLastError(context) == SCARD_E_READER_UNAVAILABLE));
+       (CKYCardContext_GetLastError(context) == SCARD_E_READER_UNAVAILABLE) ||
+       (CKYCardContext_GetLastError(context) == SCARD_E_NO_SERVICE) ||
+       (CKYCardContext_GetLastError(context) == SCARD_E_SERVICE_STOPPED) );
 #else
     do {
 	OSSleep(100);
@@ -3405,10 +3412,12 @@ retry:
         status = CKYApplet_ComputeCrypt(conn, keyNum, CKY_RSA_NO_PAD, direction,
 		input, NULL, output, getNonce(), &result);
     } 
+#ifdef notdef /* CAC pin cachine is incomplete, don't enable it */
     /* map the ISO not logged in code to the coolkey one */
     if (status == CKYISO_CONDITION_NOT_SATISFIED) {
 	status = (CKYStatus) CKYISO_UNAUTHORIZED;
     }
+#endif
     if (status != CKYSUCCESS) {
 	if ( status == CKYSCARDERR ) {
 	    handleConnectionError();
