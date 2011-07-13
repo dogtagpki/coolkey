@@ -64,7 +64,7 @@ libcoolkeypk11_la_LIBADD = @LIBCKYAPPLET@ $(ZLIB_LIBS)
 # coreconf .def file to a simplistic but acceptable libtool .sym file
 #
 coolkeypk11.sym: coolkeypk11.def
-	grep -v ';+' $< | grep -v ';-' | sed -e 's; DATA ;;' -e 's,;;,,' -e 's,;.*,,' > $@
+	grep -v ';+' $< | grep -v ';-' | sed -e 's; DATA ;;' -e 's,;;,,' -e 's,;.*,,' | grep -v '^$$'> $@
 
 clean-generic:
 	rm -f coolkeypk11.sym
