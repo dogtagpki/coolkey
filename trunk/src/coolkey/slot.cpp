@@ -1434,7 +1434,7 @@ Slot::selectApplet()
 }
 
 void
-Slot::selectCACApplet(CKYByte instance)
+Slot::selectCACApplet(CKYByte instance, bool doDisconnect)
 {
     CKYStatus status;
     /* PIV containers and keys by instance */
@@ -1459,7 +1459,9 @@ Slot::selectCACApplet(CKYByte instance)
         status = PIVApplet_Select(conn, NULL);
 	if (status == CKYSCARDERR) handleConnectionError();
 	if (status != CKYSUCCESS) {
-	    disconnect();
+	    if (doDisconnect) {
+	        disconnect();
+	    }
 	    throw PKCS11Exception(CKR_DEVICE_REMOVED);
 	}
 	pivContainer = container[instance];
@@ -1469,7 +1471,9 @@ Slot::selectCACApplet(CKYByte instance)
     CKYBuffer *aid = &cardAID[instance];
 
     if (CKYBuffer_Size(aid) == 0) {
-        disconnect();
+	if (doDisconnect) {
+	    disconnect();
+	}
         throw PKCS11Exception(CKR_DEVICE_REMOVED);
 	return;
     }
@@ -1478,7 +1482,9 @@ Slot::selectCACApplet(CKYByte instance)
     if ( status == CKYSCARDERR ) handleConnectionError();
     if ( status != CKYSUCCESS) {
         // could not select applet: this just means it's not there
-        disconnect();
+	if (doDisconnect) {
+	    disconnect();
+	}
         throw PKCS11Exception(CKR_DEVICE_REMOVED);
     }
     if (mOldCAC) {
@@ -1487,7 +1493,9 @@ Slot::selectCACApplet(CKYByte instance)
     status = CACApplet_SelectFile(conn, cardEF[instance], NULL);
     if ( status == CKYSCARDERR ) handleConnectionError();
     if ( status != CKYSUCCESS) {
-        disconnect();
+	if (doDisconnect) {
+	    disconnect();
+	}
         throw PKCS11Exception(CKR_DEVICE_REMOVED);
     }
 }
@@ -2638,7 +2646,7 @@ Slot::loadCACCert(CKYByte instance)
     // catch the applet selection errors if they don't
     //
     try {
-        selectCACApplet(instance);
+        selectCACApplet(instance, false);
     } catch(PKCS11Exception& e) {
 	// all CAC's must have instance '0', throw the error it
 	// they don't.
@@ -3082,7 +3090,7 @@ Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
     if(status != CKYSUCCESS ) handleConnectionError();
 
     if (state & GOV_CARD) {
-	selectCACApplet(0);
+	selectCACApplet(0, true);
     } else {
 	selectApplet();
     }
@@ -3784,7 +3792,7 @@ Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input,
     // select the applet
     //
     if (state & GOV_CARD) {
-	selectCACApplet(keyNum);
+	selectCACApplet(keyNum, true);
     } else {
 	selectApplet();
     }

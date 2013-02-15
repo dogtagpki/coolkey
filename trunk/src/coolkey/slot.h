@@ -415,7 +415,7 @@ class Slot {
     CKYStatus readCACCertificateAppend(CKYBuffer *cert, CKYSize nextSize);
 
     void selectApplet();
-    void selectCACApplet(CKYByte instance);
+    void selectCACApplet(CKYByte instance,bool do_disconnect);
     void unloadObjects();
     void loadCACObjects();
     void loadCACCert(CKYByte instance);
