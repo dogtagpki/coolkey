@@ -291,7 +291,7 @@ SlotList::updateReaderList()
 
     const char *curReaderName = NULL;
     unsigned long knownState = 0;
-    for(int ri = 0 ; ri < numReaders; ri ++)  {
+    for(unsigned int ri = 0 ; ri < numReaders; ri ++)  {
        
         knownState = CKYReader_GetKnownState(&readerStates[ri]);
         if( !(knownState & SCARD_STATE_IGNORE))  {
@@ -377,7 +377,8 @@ Slot::Slot(const char *readerName_, Log *log_, CKYCardContext* context_)
     : log(log_), readerName(NULL), personName(NULL), manufacturer(NULL),
 	slotInfoFound(false), context(context_), conn(NULL), state(UNKNOWN), 
 	isVersion1Key(false), needLogin(false), fullTokenName(false), 
-	mCoolkey(false), mOldCAC(false),
+	mCoolkey(false), mOldCAC(false), mCACLocalLogin(false),
+	pivContainer(-1), pivKey(-1),
 #ifdef USE_SHMEM
 	shmem(readerName_),
 #endif
@@ -580,6 +581,35 @@ SlotList::getSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
     return rv;
 }
 
+bool
+Slot::getPIVLoginType(void)
+{
+    CKYStatus status;
+    CKYISOStatus apduRC;
+    CKYBuffer buffer;
+    bool local = true;
+
+    CKYBuffer_InitEmpty(&buffer);
+
+    /* get the discovery object */
+    status = PIVApplet_GetCertificate(conn, &buffer, 0x7e, &apduRC);
+    if (status != CKYSUCCESS) {
+	/* Discovery object optional, PIV defaults to local */
+	goto done;
+    }
+    /* techically we probably should parse out the TLVs, but the PIV
+     * specifies exactly what they should be, so we know exactly which
+     * byte to look at */
+    if ((CKYBuffer_Size(&buffer) >= 20) && 
+			(CKYBuffer_GetChar(&buffer,17) == 0x60)) {
+	/* This tells us we should use global login for this piv card */
+	local = false;
+    }
+done:
+    CKYBuffer_FreeData(&buffer);
+    return true;
+}
+
 void
 Slot::connectToToken()
 {
@@ -680,32 +710,23 @@ Slot::connectToToken()
     // see if the applet is selectable
 
     log->log("time connnect: Begin transaction %d ms\n", OSTimeNow() - time);
+    status = PIVApplet_Select(conn, NULL);
+    if (status != CKYSUCCESS) {
+	goto piv_loser;
+    }
+    /* Card is a PIV card */
+    state |= PIV_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
+    isVersion1Key = 0;
+    needLogin = 1;
+    mCoolkey = 0;
+    mOldCAC = 0;
+    mCACLocalLogin = getPIVLoginType();
+    return;
+piv_loser:
+    log->log("PIV Select failed 0x%x\n", status);
     status = CKYApplet_SelectCoolKeyManager(conn, NULL);
     if (status != CKYSUCCESS) {
-        log->log("CoolKey Select failed 0x%x\n", status);
-	status = getCACAid();
-	if (status != CKYSUCCESS) {
-	    goto loser;
-	}
-	state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
-	/* skip the read of the cuid. We really don't need it and,
-         * the only way to get it from the cac is to reset it.
-         * other apps may be running now, so resetting the cac is a bit
-         * unfriendly */
-	isVersion1Key = 0;
-	needLogin = 1;
-        mCoolkey = 0;
-	return;
-loser:
-	log->log("CAC Select failed 0x%x\n", status);
-	if (status == CKYSCARDERR) {
-	    log->log("CAC Card Failure 0x%x\n",
-			CKYCardConnection_GetLastError(conn));
-	    disconnect();
-	}
-
-
-	return;
+	goto coolkey_loser;
     }
     mCoolkey = 1;
     log->log("time connect: Select Applet %d ms\n", OSTimeNow() - time);
@@ -730,6 +751,30 @@ loser:
     needLogin = (lifeCycleV2.pinCount != 0);
     tokenFWVersion.major = lifeCycleV2.protocolMajorVersion;
     tokenFWVersion.minor = lifeCycleV2.protocolMinorVersion;
+    return;
+coolkey_loser:
+    log->log("CoolKey Select failed 0x%x\n", status);
+    status = getCACAid();
+    if (status != CKYSUCCESS) {
+	goto cac_loser;
+    }
+    state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
+    /* skip the read of the cuid. We really don't need it and,
+     * the only way to get it from the cac is to reset it.
+     * other apps may be running now, so resetting the cac is a bit
+     * unfriendly */
+    isVersion1Key = 0;
+    needLogin = 1;
+    mCoolkey = 0;
+    mCACLocalLogin = false;
+    return;
+cac_loser:
+    log->log("CAC Select failed 0x%x\n", status);
+    if (status == CKYSCARDERR) {
+	log->log("Card Failure 0x%x\n",
+			CKYCardConnection_GetLastError(conn));
+	disconnect();
+    }
 }
     
 bool
@@ -771,8 +816,8 @@ Slot::invalidateLogin(bool hard)
 	}
     } else {
 	loggedIn = false;
+	pinCache.invalidate();
 	if (hard) {
-	    pinCache.invalidate();
 	    pinCache.clearPin();
 	}
     }
@@ -1392,6 +1437,35 @@ void
 Slot::selectCACApplet(CKYByte instance)
 {
     CKYStatus status;
+    /* PIV containers and keys by instance */
+    static const int container[] = {
+	0x5fc105, 0x5fc10a, 0x5fc10b, 0x5fc101,
+	0x5fc10d, 0x5fc10e, 0x5fc10f, 0x5fc110, 
+	0x5fc111, 0x5fc112, 0x5fc113, 0x5fc114, 
+	0x5fc115, 0x5fc116, 0x5fc117, 0x5fc118, 
+	0x5fc119, 0x5fc11a, 0x5fc11b, 0x5fc11c, 
+	0x5fc11d, 0x5fc11e, 0x5fc11f, 0x5fc120
+    };
+    static const int keyRef[] = {
+	0x9a,     0x9c,     0x9d,     0x9e,
+	0x82,     0x83,     0x84,     0x85,
+	0x86,     0x87,     0x88,     0x89,
+	0x8a,     0x8b,     0x8c,     0x8d,
+	0x8e,     0x8f,     0x90,     0x91,
+	0x92,     0x93,     0x94,     0x95
+    };
+
+    if (state & PIV_CARD) {
+        status = PIVApplet_Select(conn, NULL);
+	if (status == CKYSCARDERR) handleConnectionError();
+	if (status != CKYSUCCESS) {
+	    disconnect();
+	    throw PKCS11Exception(CKR_DEVICE_REMOVED);
+	}
+	pivContainer = container[instance];
+	pivKey = keyRef[instance];
+	return;
+    }
     CKYBuffer *aid = &cardAID[instance];
 
     if (CKYBuffer_Size(aid) == 0) {
@@ -1955,7 +2029,7 @@ Slot::readCUID(void)
     // shared memory is protected by our transaction call on the card
     //
     CKYStatus status;
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	status = CACApplet_SelectCardManager(conn, NULL);
     } else {
 	status = CKYApplet_SelectCardManager(conn, NULL);
@@ -2188,6 +2262,50 @@ Slot::fetchCombinedObjects(const CKYBuffer *header)
     return objInfoList;
 }
 
+typedef enum {
+	BER_UNWRAP,
+	BER_NEXT
+} BERop;
+
+static CKYStatus
+berProcess(CKYBuffer *buf, int matchTag, CKYBuffer *target, BERop type)
+{
+    unsigned char tag;
+    unsigned int used_length= 0;
+    unsigned int data_length;
+
+    tag = CKYBuffer_GetChar(buf,used_length++);
+
+    /* blow out when we come to the end */
+    if (matchTag && tag != matchTag) {
+        return CKYLIBFAIL;
+    }
+
+    data_length = CKYBuffer_GetChar(buf,used_length++);
+
+    if (data_length & 0x80) {
+        int  len_count = data_length & 0x7f;
+
+        data_length = 0;
+
+        while (len_count-- > 0) {
+            data_length = (data_length << 8) | 
+				CKYBuffer_GetChar(buf,used_length++);
+        }
+    }
+
+    if (data_length > (CKYBuffer_Size(buf)-used_length) ) {
+        return CKYLIBFAIL;
+    }
+
+    if (type == BER_UNWRAP) {
+        return CKYBuffer_AppendBuffer(target, buf, used_length, data_length);
+    }
+    return CKYBuffer_AppendBuffer(target, buf, used_length+data_length,
+		CKYBuffer_Size(buf)-(used_length+data_length));
+}
+
+
 CKYStatus
 Slot::readCACCertificateFirst(CKYBuffer *cert, CKYSize *nextSize, 
 			      bool throwException)
@@ -2196,16 +2314,60 @@ Slot::readCACCertificateFirst(CKYBuffer *cert, CKYSize *nextSize,
     CKYISOStatus apduRC;
     *nextSize = 0;
 
+    if (state & PIV_CARD) {
+	CKYBuffer pivData;
+	CKYBuffer certInfo;
+
+	CKYBuffer_InitEmpty(&pivData);
+	CKYBuffer_InitEmpty(&certInfo);
+	CKYBuffer_Resize(cert, 0);
+	status = PIVApplet_GetCertificate(conn, cert, pivContainer, &apduRC);
+	if (throwException && (status != CKYSUCCESS)) {
+	    handleConnectionError();
+	}
+	/* actually, on success, we need to parse the certificate and find the
+	 * propper tag */
+	if (status == CKYSUCCESS) {
+	    status = berProcess(cert, 0x53, &pivData, BER_UNWRAP);
+	    CKYBuffer_Resize(cert, 0);
+	    CKYBuffer_AppendChar(cert,0);
+	    do {
+		CKYByte tag = CKYBuffer_GetChar(&pivData,0);
+		if (tag == CAC_TAG_CERTIFICATE) {
+		    status = berProcess(&pivData, CAC_TAG_CERTIFICATE, 
+					cert, BER_UNWRAP);
+		}
+		if (tag == CAC_TAG_CERTINFO) {
+		    CKYBuffer_Resize(&certInfo, 0);
+		    status = berProcess(&pivData, CAC_TAG_CERTINFO, 
+					&certInfo, BER_UNWRAP);
+		    if (CKYBuffer_Size(&certInfo) == 1) {
+			CKYBuffer_SetChar(cert,0,
+					CKYBuffer_GetChar(&certInfo,0));
+		    }
+		}
+		if (status == CKYSUCCESS) {
+		    CKYBuffer_Resize(&certInfo, 0);
+		    status = berProcess(&pivData, 0, &certInfo, BER_NEXT);
+		    if (status == CKYSUCCESS) {
+			CKYBuffer_Resize(&pivData,0);
+			status = CKYBuffer_AppendCopy(&pivData,&certInfo);
+		    }
+		}
+	    } while ((status == CKYSUCCESS) && (CKYBuffer_Size(&pivData) != 0));
+	    CKYBuffer_FreeData(&pivData);
+	    CKYBuffer_FreeData(&certInfo);
+	}
+	
+	return status;
+    }
+
     if (mOldCAC) {
 	/* get the first 100 bytes of the cert */
 	status = CACApplet_GetCertificateFirst(conn, cert, nextSize, &apduRC);
 	if (throwException && (status != CKYSUCCESS)) {
 	    handleConnectionError();
 	}
-        
-        if(CKYBuffer_Size(cert) == 0) {
-            handleConnectionError();
-        }
 	return status;
     }
 
@@ -2218,6 +2380,7 @@ Slot::readCACCertificateFirst(CKYBuffer *cert, CKYSize *nextSize,
     CKYBuffer_InitEmpty(&tBuf);
     CKYBuffer_InitEmpty(&vBuf);
     CKYBuffer_Resize(cert, 0);
+    CKYBuffer_AppendChar(cert,0);
 
     /* handle the new CAC card read */
     /* read the TLV */
@@ -2243,11 +2406,12 @@ Slot::readCACCertificateFirst(CKYBuffer *cert, CKYSize *nextSize,
 	    length = CKYBuffer_GetShortLE(&tBuf, toffset);
 	    toffset +=2;
 	}
-	if (tag != CAC_TAG_CERTIFICATE) {
-	    continue;
+	if (tag == CAC_TAG_CERTIFICATE) {
+	    CKYBuffer_AppendBuffer(cert, &vBuf, voffset, length);
 	}
-	CKYBuffer_AppendBuffer(cert, &vBuf, voffset, length);
-	break;
+	if (tag == CAC_TAG_CERTINFO) {
+	    CKYBuffer_SetChar(cert,0,CKYBuffer_GetChar(&vBuf,voffset));
+	}
     }
     status = CKYSUCCESS;
 
@@ -2255,6 +2419,191 @@ done:
     CKYBuffer_FreeData(&tBuf);
     CKYBuffer_FreeData(&vBuf);
     return status;
+}
+
+
+const static unsigned long crc_table[] = {
+0x00000000,0x77073096,0xee0e612c,0x990951ba,
+0x076dc419,0x706af48f,0xe963a535,0x9e6495a3,
+0x0edb8832,0x79dcb8a4,0xe0d5e91e,0x97d2d988,
+0x09b64c2b,0x7eb17cbd,0xe7b82d07,0x90bf1d91,
+0x1db71064,0x6ab020f2,0xf3b97148,0x84be41de,
+0x1adad47d,0x6ddde4eb,0xf4d4b551,0x83d385c7,
+0x136c9856,0x646ba8c0,0xfd62f97a,0x8a65c9ec,
+0x14015c4f,0x63066cd9,0xfa0f3d63,0x8d080df5,
+0x3b6e20c8,0x4c69105e,0xd56041e4,0xa2677172,
+0x3c03e4d1,0x4b04d447,0xd20d85fd,0xa50ab56b,
+0x35b5a8fa,0x42b2986c,0xdbbbc9d6,0xacbcf940,
+0x32d86ce3,0x45df5c75,0xdcd60dcf,0xabd13d59,
+0x26d930ac,0x51de003a,0xc8d75180,0xbfd06116,
+0x21b4f4b5,0x56b3c423,0xcfba9599,0xb8bda50f,
+0x2802b89e,0x5f058808,0xc60cd9b2,0xb10be924,
+0x2f6f7c87,0x58684c11,0xc1611dab,0xb6662d3d,
+0x76dc4190,0x01db7106,0x98d220bc,0xefd5102a,
+0x71b18589,0x06b6b51f,0x9fbfe4a5,0xe8b8d433,
+0x7807c9a2,0x0f00f934,0x9609a88e,0xe10e9818,
+0x7f6a0dbb,0x086d3d2d,0x91646c97,0xe6635c01,
+0x6b6b51f4,0x1c6c6162,0x856530d8,0xf262004e,
+0x6c0695ed,0x1b01a57b,0x8208f4c1,0xf50fc457,
+0x65b0d9c6,0x12b7e950,0x8bbeb8ea,0xfcb9887c,
+0x62dd1ddf,0x15da2d49,0x8cd37cf3,0xfbd44c65,
+0x4db26158,0x3ab551ce,0xa3bc0074,0xd4bb30e2,
+0x4adfa541,0x3dd895d7,0xa4d1c46d,0xd3d6f4fb,
+0x4369e96a,0x346ed9fc,0xad678846,0xda60b8d0,
+0x44042d73,0x33031de5,0xaa0a4c5f,0xdd0d7cc9,
+0x5005713c,0x270241aa,0xbe0b1010,0xc90c2086,
+0x5768b525,0x206f85b3,0xb966d409,0xce61e49f,
+0x5edef90e,0x29d9c998,0xb0d09822,0xc7d7a8b4,
+0x59b33d17,0x2eb40d81,0xb7bd5c3b,0xc0ba6cad,
+0xedb88320,0x9abfb3b6,0x03b6e20c,0x74b1d29a,
+0xead54739,0x9dd277af,0x04db2615,0x73dc1683,
+0xe3630b12,0x94643b84,0x0d6d6a3e,0x7a6a5aa8,
+0xe40ecf0b,0x9309ff9d,0x0a00ae27,0x7d079eb1,
+0xf00f9344,0x8708a3d2,0x1e01f268,0x6906c2fe,
+0xf762575d,0x806567cb,0x196c3671,0x6e6b06e7,
+0xfed41b76,0x89d32be0,0x10da7a5a,0x67dd4acc,
+0xf9b9df6f,0x8ebeeff9,0x17b7be43,0x60b08ed5,
+0xd6d6a3e8,0xa1d1937e,0x38d8c2c4,0x4fdff252,
+0xd1bb67f1,0xa6bc5767,0x3fb506dd,0x48b2364b,
+0xd80d2bda,0xaf0a1b4c,0x36034af6,0x41047a60,
+0xdf60efc3,0xa867df55,0x316e8eef,0x4669be79,
+0xcb61b38c,0xbc66831a,0x256fd2a0,0x5268e236,
+0xcc0c7795,0xbb0b4703,0x220216b9,0x5505262f,
+0xc5ba3bbe,0xb2bd0b28,0x2bb45a92,0x5cb36a04,
+0xc2d7ffa7,0xb5d0cf31,0x2cd99e8b,0x5bdeae1d,
+0x9b64c2b0,0xec63f226,0x756aa39c,0x026d930a,
+0x9c0906a9,0xeb0e363f,0x72076785,0x05005713,
+0x95bf4a82,0xe2b87a14,0x7bb12bae,0x0cb61b38,
+0x92d28e9b,0xe5d5be0d,0x7cdcefb7,0x0bdbdf21,
+0x86d3d2d4,0xf1d4e242,0x68ddb3f8,0x1fda836e,
+0x81be16cd,0xf6b9265b,0x6fb077e1,0x18b74777,
+0x88085ae6,0xff0f6a70,0x66063bca,0x11010b5c,
+0x8f659eff,0xf862ae69,0x616bffd3,0x166ccf45,
+0xa00ae278,0xd70dd2ee,0x4e048354,0x3903b3c2,
+0xa7672661,0xd06016f7,0x4969474d,0x3e6e77db,
+0xaed16a4a,0xd9d65adc,0x40df0b66,0x37d83bf0,
+0xa9bcae53,0xdebb9ec5,0x47b2cf7f,0x30b5ffe9,
+0xbdbdf21c,0xcabac28a,0x53b39330,0x24b4a3a6,
+0xbad03605,0xcdd70693,0x54de5729,0x23d967bf,
+0xb3667a2e,0xc4614ab8,0x5d681b02,0x2a6f2b94,
+0xb40bbe37,0xc30c8ea1,0x5a05df1b,0x2d02ef8d
+};
+
+static unsigned long 
+calc_crc32(const unsigned char *buf, int len)
+{
+    unsigned long crc = 0xffffffff;
+    int i;
+
+    for (i=0; i < len; i++) {
+	unsigned char crc_low = crc & 0xff;
+	unsigned long crc_high = crc >> 8;
+	crc = crc_table[crc_low ^ buf[i]] ^ crc_high;
+    }
+    return crc ^ 0xffffffff;
+}
+
+/*
+ * decompress, handles both gzip and zlib trailers
+ * it also automatically allocates the output buffer and expands it as 
+ * necessary.
+ */
+static int 
+decompress(CKYBuffer *out, 
+			CKYBuffer *in, CKYOffset offset, CKYSize len)
+{
+    int zret;
+    CKYStatus status;
+    z_stream stream;
+    int chunk = len *2;
+    int outlen = 0;
+    
+
+    /* allocate inflate state */
+    stream.zalloc = Z_NULL;
+    stream.zfree = Z_NULL;
+    stream.opaque = Z_NULL;
+    stream.avail_in = 0;
+    stream.next_in = Z_NULL;
+    zret = inflateInit(&stream);
+    if (zret != Z_OK)
+        return zret;
+
+    status = CKYBuffer_Reserve(out, outlen);
+    if (status != CKYSUCCESS) {
+	return Z_MEM_ERROR;
+    }
+
+    stream.avail_in = len;
+    stream.next_in =  (Bytef *)(CKYBuffer_Data(in) + offset);
+
+    do {
+	CKYBuffer_Resize(out, outlen + chunk);
+ 	stream.avail_out = chunk;
+
+	stream.next_out = (Bytef *)CKYBuffer_Data(out)+ outlen;
+
+	zret= inflate(&stream, Z_NO_FLUSH);
+
+	/* we need the length early so it can be used in error processing */
+	outlen += chunk - stream.avail_out;
+
+	/* proccess the error codes */
+	switch (zret) {
+	case Z_DATA_ERROR:
+	    /* a DATA error can occur on either corrupted data, or on gzip.
+	     * data. This is because gzip uses CRC32 and zlib used ADLER32
+	     * checksums. We need to check to see if this failure is do to
+	     * a gzip header. */
+	    /* 1) a gzip header includes 4 extra bytes containing the length
+	     * of the gziped data. This means there must be 4 more bytes
+	     * in our input buffer that have not been processed */
+	    if (stream.avail_in != 4) {
+		break; /* not a gzip header */
+	    }
+	    /* The last 4 bytes of a gzip header include the uncompressed length
+	     * modulo 2^32. Make sure the actual uncompressed length matches
+	     * the header. */
+	    if ((outlen  & 0xffffffffL)
+				!= CKYBuffer_GetLongLE(in, offset+len-4)) {
+		break; /* didn't decode the full length */
+	    }
+	    /* At this point it''s pretty likely we have a gzip trailer. Verify
+	     * the crc32 values to make sure there hasn't been any corruption.
+	     */
+	    if (calc_crc32(CKYBuffer_Data(out), outlen) != 
+				CKYBuffer_GetLongLE(in,offset+len-8)) {
+		break; /* CRC didn't match */
+	    }
+ 	    /* This was valid gzip data, and we've successfully uncompressed
+	     * it. We're now done. */
+	    zret=Z_STREAM_END;
+	    break;
+	case Z_NEED_DICT:
+	    /* if we need the dict, it wasn't in the data, 
+	     * so it's a data error */
+	    zret = Z_DATA_ERROR;
+	    break;
+	case Z_OK:
+	    /* Z_OK means we need more data, expand the buffer and go again.
+	     * if we don't need more buffer space, then the input must have
+	     * been truncated, that's a data error */
+	    if (stream.avail_out != 0) {
+		zret = Z_DATA_ERROR;
+	    }
+	    break;
+ 	}
+    } while (zret == Z_OK);
+
+    /* cleanup */
+    if (zret == Z_STREAM_END) {
+	zret = Z_OK;
+	CKYBuffer_Resize(out, outlen);
+    } else {
+	CKYBuffer_Resize(out, 0);
+    }
+    (void)inflateEnd(&stream);
+    return zret;
 }
 
 /*
@@ -2307,7 +2656,7 @@ Slot::loadCACCert(CKYByte instance)
 
     if (instance == 0) {
         readCACCertificateFirst(&rawCert, &nextSize, true);
-        if(CKYBuffer_Size(&rawCert) == 0) {
+        if(CKYBuffer_Size(&rawCert) <= 1) {
              handleConnectionError();
         }
 	log->log("CAC Cert %d: fetch CAC Cert:  %d ms\n", 
@@ -2352,7 +2701,7 @@ Slot::loadCACCert(CKYByte instance)
 	} else {
 	    status = readCACCertificateFirst(&rawCert, &nextSize, false);
 	
-	    if (status != CKYSUCCESS) {
+	    if ((status != CKYSUCCESS) || (CKYBuffer_Size(&rawCert) <= 1)) {
 		/* CAC only requires the Certificate in pki '0' */
 		/* if pki '1' or '2' are empty, treat it as a non-fatal error*/
 		if (instance == 2) {
@@ -2381,31 +2730,61 @@ Slot::loadCACCert(CKYByte instance)
 
     log->log("CAC Cert %d: Cert has been read:  %d ms\n",
 						instance, OSTimeNow() - time);
-    if (!mOldCAC || CKYBuffer_GetChar(&rawCert,0) == 1) {
-	CKYSize guessFinalSize = CKYBuffer_Size(&rawCert);
-	CKYSize certSize = 0;
-	CKYOffset offset = mOldCAC ? 1 : 0;
+    /* new CACs, and old CACs with the high one bit are compressed, 
+     * uncompress them */
+    if ((CKYBuffer_GetChar(&rawCert,0) & 0x3) == 1) {
+	CKYOffset offset = 1;
 	int zret = Z_MEM_ERROR;
 
-	do {
-	    guessFinalSize *= 2;
-	    status = CKYBuffer_Resize(&cert, guessFinalSize);
-	    if (status != CKYSUCCESS) {
-		    break;
+	/* process the GZIP header if present */
+	/* header_id = 0x1f, 0x8b. CM=8. If we ever support something other
+	 * than CM=8, we need to change the zlib header below. Currently both
+	 * gzip and zlib only support CM=8 (DEFLATE) compression */
+	if ((CKYBuffer_GetChar(&rawCert,1) == 0x1f) &&
+	    (CKYBuffer_GetChar(&rawCert,2) == 0x8b) &&
+	    (CKYBuffer_GetChar(&rawCert,3) == 8)) {
+	    CKYByte flags = CKYBuffer_GetChar(&rawCert,4);
+	    /* this has a gzip header, not raw data. */
+	    offset += 10; /* base size of the gzip header */
+	    if (flags & 4) { /* FEXTRA */
+		CKYSize len = CKYBuffer_GetShortLE(&rawCert,offset);
+		offset += len;
 	    }
-	    certSize = guessFinalSize;
-	    zret = uncompress((Bytef *)CKYBuffer_Data(&cert),&certSize,
-			CKYBuffer_Data(&rawCert)+offset, 
-			CKYBuffer_Size(&rawCert)-offset);
-	} while (zret == Z_BUF_ERROR);
+	    if (flags & 8) { /* FNAME */
+		while (CKYBuffer_GetChar(&rawCert,offset) != 0) {
+		    offset++;
+		}
+		offset++;
+	    }
+	    if (flags & 0x10) { /* FComment */
+		while (CKYBuffer_GetChar(&rawCert,offset) != 0) {
+		    offset++;
+		}
+		offset++;
+	    }
+	    if (flags & 2) { /* FHCRC */
+		offset += 2;
+	    }
+	    offset -= 2;
+
+	    /* add zlib header, so libz will be happy */
+	    /* CINFO=7, CM=8, LEVEL=2, DICTFLAG=0, FCHECK= 1c */
+	    /* NOTE: the zlib will fail when procssing the trailer. this is
+	     * ok because decompress automatically notices the failure and
+	     * and checks the gzip trailer. */
+	    CKYBuffer_SetChar(&rawCert, offset, 0x78);
+	    CKYBuffer_SetChar(&rawCert, offset+1, 0x9c);
+	}
+	/* uncompress. This expands cert as necessary. */
+	zret = decompress(&cert, &rawCert, offset, 
+					CKYBuffer_Size(&rawCert)-offset);
 
 	if (zret != Z_OK) {
 	    CKYBuffer_FreeData(&rawCert);
 	    CKYBuffer_FreeData(&cert);
 	    throw PKCS11Exception(CKR_DEVICE_ERROR, 
-				"Corrupted compressed CAC Cert");
+				"Corrupted compressed CAC/PIV Cert");
 	}
-	CKYBuffer_Resize(&cert,certSize);
     } else {
 	CKYBuffer_InitFromBuffer(&cert,&rawCert,1,CKYBuffer_Size(&rawCert)-1);
     }
@@ -2447,7 +2826,7 @@ Slot::loadObjects()
     list<ListObjectInfo> objInfoList;
     std::list<ListObjectInfo>::iterator iter;
 
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	loadCACCert(0);
 	loadCACCert(1);
 	loadCACCert(2);
@@ -2692,6 +3071,7 @@ Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
     }
 
     if (!isVersion1Key) {
+	pinCache.invalidate();
 	pinCache.set((const char *)pPin, ulPinLen);
     } else if (nonceValid) {
 	throw PKCS11Exception(CKR_USER_ALREADY_LOGGED_IN);
@@ -2701,7 +3081,7 @@ Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
     CKYStatus status = trans.begin(conn);
     if(status != CKYSUCCESS ) handleConnectionError();
 
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	selectCACApplet(0);
     } else {
 	selectApplet();
@@ -2709,7 +3089,7 @@ Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
 
     if (isVersion1Key) {
 	attemptLogin((const char *)pPin);
-    } else if (state & CAC_CARD) {
+    } else if (state & GOV_CARD) {
 	attemptCACLogin();
     } else {
 	oldAttemptLogin();
@@ -2726,7 +3106,8 @@ Slot::attemptCACLogin()
     CKYISOStatus result;
 
     status = CACApplet_VerifyPIN(conn, 
-		(const char *)CKYBuffer_Data(pinCache.get()), &result);
+		(const char *)CKYBuffer_Data(pinCache.get()), 
+		mCACLocalLogin, &result);
     if( status == CKYSCARDERR ) {
 	handleConnectionError();
     }
@@ -2734,8 +3115,10 @@ Slot::attemptCACLogin()
       case CKYISO_SUCCESS:
         break;
       case 0x6981:
+	pinCache.clearPin();
         throw PKCS11Exception(CKR_PIN_LOCKED);
       default:
+	pinCache.clearPin();
 	if ((result & 0xff00) == 0x6300) {
             throw PKCS11Exception(CKR_PIN_INCORRECT);
 	}
@@ -2764,10 +3147,13 @@ Slot::oldAttemptLogin()
       case CKYISO_SUCCESS:
         break;
       case CKYISO_AUTH_FAILED:
+	pinCache.clearPin();
         throw PKCS11Exception(CKR_PIN_INCORRECT);
       case CKYISO_IDENTITY_BLOCKED:
+	pinCache.clearPin();
         throw PKCS11Exception(CKR_PIN_LOCKED);
       default:
+	pinCache.clearPin();
         throw PKCS11Exception(CKR_DEVICE_ERROR, "Applet returned 0x%04x", 
 								result);
     }
@@ -2854,7 +3240,7 @@ Slot::logout(SessionHandleSuffix suffix)
         throw PKCS11Exception(CKR_SESSION_HANDLE_INVALID);
     }
 
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	CACLogout();
 	return;
     }
@@ -3397,7 +3783,7 @@ Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input,
     //
     // select the applet
     //
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	selectCACApplet(keyNum);
     } else {
 	selectApplet();
@@ -3406,18 +3792,19 @@ Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input,
     CKYISOStatus result;
     int loginAttempted = 0;
 retry:
-    if (state & CAC_CARD) {
+    if (state & PIV_CARD) {
+        status = PIVApplet_SignDecrypt(conn, pivKey, input, output, &result);
+    } else if (state & CAC_CARD) {
         status = CACApplet_SignDecrypt(conn, input, output, &result);
     } else {
         status = CKYApplet_ComputeCrypt(conn, keyNum, CKY_RSA_NO_PAD, direction,
 		input, NULL, output, getNonce(), &result);
     } 
-#ifdef notdef /* CAC pin cachine is incomplete, don't enable it */
     /* map the ISO not logged in code to the coolkey one */
-    if (status == CKYISO_CONDITION_NOT_SATISFIED) {
-	status = (CKYStatus) CKYISO_UNAUTHORIZED;
+    if ((result == CKYISO_CONDITION_NOT_SATISFIED) ||
+        (result == CKYISO_SECURITY_NOT_SATISFIED)) {
+	result = (CKYStatus) CKYISO_UNAUTHORIZED;
     }
-#endif
     if (status != CKYSUCCESS) {
 	if ( status == CKYSCARDERR ) {
 	    handleConnectionError();
@@ -3428,11 +3815,15 @@ retry:
 	// version0 keys could be logged out in the middle by someone else,
 	// reauthenticate... This code can go away when we depricate.
         // version0 applets.
-	if (!isVersion1Key && !loginAttempted  && 
+	if (!isVersion1Key && !loginAttempted  && pinCache.isValid() &&
 					(result == CKYISO_UNAUTHORIZED)) {
 	    // try to reauthenticate 
 	    try {
-		oldAttemptLogin();
+		if (state & GOV_CARD) {
+		    attemptCACLogin();
+		} else {
+		    oldAttemptLogin();
+		}
 	    } catch(PKCS11Exception& ) {
 		// attemptLogin can throw things like CKR_PIN_INCORRECT
 		// that don't make sense from a crypto operation. This is
@@ -3452,7 +3843,7 @@ void
 Slot::seedRandom(SessionHandleSuffix suffix, CK_BYTE_PTR pData,
         CK_ULONG ulDataLen)
 {
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	/* should throw unsupported */
 	throw PKCS11Exception(CKR_DEVICE_ERROR);
     }
@@ -3504,7 +3895,7 @@ void
 Slot::generateRandom(SessionHandleSuffix suffix, const CK_BYTE_PTR pData,
         CK_ULONG ulDataLen)
 {
-    if (state & CAC_CARD) {
+    if (state & GOV_CARD) {
 	/* should throw unsupported */
 	throw PKCS11Exception(CKR_DEVICE_ERROR);
     }

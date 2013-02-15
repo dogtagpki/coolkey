@@ -710,6 +710,13 @@ CKYAPDU_SetReceiveLen(CKYAPDU *apdu, CKYByte recvlen)
     return CKYBuffer_SetChar(&apdu->apduBuf, CKY_LE_OFFSET, recvlen);
 }
 
+CKYStatus
+CKYAPDU_AppendReceiveLen(CKYAPDU *apdu, CKYByte recvlen)
+{
+    return CKYBuffer_AppendChar(&apdu->apduBuf, recvlen);
+}
+
+
 void
 CKY_SetName(char *p)
 {

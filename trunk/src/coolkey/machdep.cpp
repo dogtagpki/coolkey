@@ -368,6 +368,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
 #ifdef FULL_CLEANUP
 	    flock(shmemData->fd, LOCK_UN);
 #endif
+	    free(buf);
 	    delete shmemData;
 	    return NULL;
 	}

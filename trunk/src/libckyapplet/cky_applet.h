@@ -43,7 +43,8 @@ typedef unsigned short CKYISOStatus; /* applet return status */
 #define CKYISO_MORE_MASK	    0xff00  /* More data mask */
 #define CKYISO_MORE		    0x6300  /* More data available */
 #define CKYISO_DATA_INVALID	    0x6984
-#define CKYISO_CONDITION_NOT_SATISFIED 0x6985  /* AKA not logged in */
+#define CKYISO_CONDITION_NOT_SATISFIED 0x6985  /* AKA not logged in (CAC)*/
+#define CKYISO_SECURITY_NOT_SATISFIED  0x6982  /* AKA not logged in (PIV)*/
 /* Applet Defined Return codes */
 #define CKYISO_NO_MEMORY_LEFT        0x9c01  /* There have been memory 
                                              * problems on the card */
@@ -79,6 +80,7 @@ typedef unsigned short CKYISOStatus; /* applet return status */
 
 #define CAC_TAG_CARDURL			0xf3
 #define CAC_TAG_CERTIFICATE		0x70
+#define CAC_TAG_CERTINFO		0x71
 #define CAC_TLV_APP_PKI			0x04
 
 /*
@@ -225,6 +227,26 @@ typedef struct _CACAppletArgReadFile {
     unsigned short offset;
 } CACAppletArgReadFile;
 
+typedef struct _PIVAppletArgSignDecrypt {
+     CKYByte	alg;   
+     CKYByte	key;   
+     CKYByte	chain;   
+     CKYSize	len;   
+     CKYBuffer  *buf;
+} PIVAppletArgSignDecrypt;
+
+typedef struct _pivUnwrapState {
+     CKYByte	tag;
+     CKYByte	length;
+     int	length_bytes;
+} PIVUnwrapState;
+
+typedef struct _PIVAppletRespSignDecrypt {
+     PIVUnwrapState tag_1;
+     PIVUnwrapState tag_2;
+     CKYBuffer  *buf;
+} PIVAppletRespSignDecrypt;
+
 /* fills in an APDU from a structure -- form of all the generic factories*/
 typedef CKYStatus (*CKYAppletFactory)(CKYAPDU *apdu, const void *param);
 /* fills in an a structure from a response -- form of all the fill structures*/
@@ -336,7 +358,6 @@ CKYStatus CKYAppletFill_AppendBuffer(const CKYBuffer *response,
 /* Single value fills: Byte, Short, & Long */
 /* param == CKYByte * */
 CKYStatus CKYAppletFill_Byte(const CKYBuffer *response, CKYSize size, void *param);
-/* param == CKYByte * */
 CKYStatus CKYAppletFill_Short(const CKYBuffer *response, CKYSize size, void *param);
 CKYStatus CKYAppletFill_Long(const CKYBuffer *response, CKYSize size, void *param);
 
@@ -362,7 +383,7 @@ CKYBool CKYApplet_VerifyResponse(const CKYBuffer *response, CKYSize dataSize,
  *   Sends the ADPU to the card through the connection conn.
  *   Checks that the response was valid (returning the responce code in apduRC.
  *   Formats the response data into fillArg with fillFunc
- * nonce and apduRC can be NULL (no nonce is added, not status returned 
+ * nonce and apduRC can be NULL (no nonce is added, no status returned 
  * legal values for afArg are depened on afFunc.
  * legal values for fillArg are depened on fillFunc.
  */
@@ -378,7 +399,7 @@ CKYStatus CKYApplet_HandleAPDU(CKYCardConnection *conn,
  *   into function calls, with input and output parameters.
  *   The application is still responsible for 
  *      1) creating a connection to the card, 
- *      2) Getting a tranaction long,  then
+ *      2) Getting a transaction lock,  then
  *      3) selecting  the appropriate applet (or Card manager). 
  *   Except for those calls that have been noted, the appropriate applet 
  *   is the CoolKey applet.
@@ -491,9 +512,17 @@ CKYStatus CACApplet_GetCertificateAppend(CKYCardConnection *conn,
 				   CKYISOStatus *apduRC);
 
 /*CKYStatus CACApplet_GetProperties(); */
-CKYStatus CACApplet_VerifyPIN(CKYCardConnection *conn, const char *pin,
-				   CKYISOStatus *apduRC);
+CKYStatus CACApplet_VerifyPIN(CKYCardConnection *conn, const char *pin, 
+				int local, CKYISOStatus *apduRC);
 
+/* Select a PIV applet  */
+CKYStatus PIVApplet_Select(CKYCardConnection *conn, CKYISOStatus *apduRC);
+
+CKYStatus PIVApplet_GetCertificate(CKYCardConnection *conn, CKYBuffer *cert,
+				   int tag, CKYISOStatus *apduRC);
+CKYStatus PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
+                                   const CKYBuffer *data, CKYBuffer *result, 
+                                    CKYISOStatus *apduRC);
 /*
  * There are 3 read commands:
  *  

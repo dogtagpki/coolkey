@@ -27,12 +27,6 @@
 
 #ifndef WINAPI
 #define WINAPI
-/*
- * The Mac needs this typedef to compile.
-*/
-#ifdef MAC
-typedef SCARD_READERSTATE *LPSCARD_READERSTATE;
-#endif
 #endif
 
 #ifndef SCARD_E_NO_READERS_AVAILABLE
@@ -113,7 +107,7 @@ typedef long (WINAPI * SCardGetAttribFn) (
 typedef long (WINAPI * SCardGetStatusChangeFn) (
     SCARDCONTEXT hContext,
     unsigned long dwTimeout,
-    LPSCARD_READERSTATE rgReaderStates,
+    SCARD_READERSTATE *rgReaderStates,
     unsigned long cReaders);
 
 typedef long (WINAPI * SCardCancelFn) (
@@ -1082,25 +1076,39 @@ CKYCardConnection_ExchangeAPDU(CKYCardConnection *conn, CKYAPDU *apdu,
 							CKYBuffer *response)
 {
     CKYStatus ret;
+    CKYBuffer getResponse;
+    CKYSize size = 0;
 
     ret = CKYCardConnection_TransmitAPDU(conn, apdu, response);
     if (ret != CKYSUCCESS) {
 	return ret;
     }
+    CKYBuffer_InitEmpty(&getResponse);
 
-    if (CKYBuffer_Size(response) == 2 && CKYBuffer_GetChar(response,0) == 0x61) {
+    /* automatically handle the response data protocol */
+    while ((ret == CKYSUCCESS) &&
+	   (size = CKYBuffer_Size(response)) >= 2 &&
+	   (CKYBuffer_GetChar(response,size-2) == 0x61)) {
 	/* get the response */
 	CKYAPDU getResponseAPDU;
 
+	CKYBuffer_Zero(&getResponse);
 	CKYAPDU_Init(&getResponseAPDU);
 	CKYAPDU_SetCLA(&getResponseAPDU, 0x00);
 	CKYAPDU_SetINS(&getResponseAPDU, 0xc0);
 	CKYAPDU_SetP1(&getResponseAPDU, 0x00);
 	CKYAPDU_SetP2(&getResponseAPDU, 0x00);
-	CKYAPDU_SetReceiveLen(&getResponseAPDU, CKYBuffer_GetChar(response,1));
-	ret = CKYCardConnection_TransmitAPDU(conn, &getResponseAPDU, response);
+	CKYAPDU_SetReceiveLen(&getResponseAPDU, 
+					CKYBuffer_GetChar(response,size-1));
+	ret = CKYCardConnection_TransmitAPDU(conn, &getResponseAPDU,
+					&getResponse);
 	CKYAPDU_FreeData(&getResponseAPDU);
+	if ((ret == CKYSUCCESS) && (CKYBuffer_Size(&getResponse) >= 2)) {
+	    CKYBuffer_Resize(response, size-2);
+	    CKYBuffer_AppendCopy(response,&getResponse);
+	}
     }
+    CKYBuffer_FreeData(&getResponse);
     return ret;
 }
 

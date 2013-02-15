@@ -62,7 +62,6 @@ CKYAPDUFactory_GetCPLCData(CKYAPDU *apdu)
     CKYAPDU_SetP2(apdu, 0x7f);
     return CKYAPDU_SetReceiveLen(apdu, CKY_SIZE_GET_CPLCDATA);
 }
-
 /*
  * applet commands must be issued with the appplet selected.
  */
@@ -622,7 +621,6 @@ fail:
     CKYBuffer_FreeData(&buf);
     return ret;
 }
-
 CKYStatus
 CACAPDUFactory_GetProperties(CKYAPDU *apdu)
 {
@@ -634,7 +632,7 @@ CACAPDUFactory_GetProperties(CKYAPDU *apdu)
 }
 
 CKYStatus
-CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, const char *pin)
+CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, CKYByte keyRef, const char *pin)
 {
     CKYStatus ret;
     CKYSize size;
@@ -642,7 +640,7 @@ CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, const char *pin)
     CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
     CKYAPDU_SetINS(apdu, CAC_INS_VERIFY_PIN);
     CKYAPDU_SetP1(apdu, 0x00);
-    CKYAPDU_SetP2(apdu, 0x00);
+    CKYAPDU_SetP2(apdu, keyRef);
     /* no pin, send an empty buffer */
     if (!pin) {
     	return CKYAPDU_SetReceiveLen(apdu, 0);
@@ -663,3 +661,63 @@ CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, const char *pin)
     return ret;
 
 }
+
+CKYStatus
+PIVAPDUFactory_SignDecrypt(CKYAPDU *apdu, CKYByte chain, CKYByte alg, 
+			   CKYByte key, int len, const CKYBuffer *data)
+{
+    CKYStatus ret;
+    CKYAPDU_SetCLA(apdu, chain ? CKY_CLASS_ISO7816_CHAIN :
+				  CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, PIV_INS_GEN_AUTHENTICATE);
+    CKYAPDU_SetP1(apdu, alg);
+    CKYAPDU_SetP2(apdu, key);
+    ret =  CKYAPDU_SetSendDataBuffer(apdu, data);
+    if (ret == CKYSUCCESS && len != 0) {
+	if (len >= 256) len = 0;
+	ret = CKYAPDU_AppendReceiveLen(apdu, len);
+    }
+    return ret;
+}
+
+CKYStatus
+PIVAPDUFactory_GetData(CKYAPDU *apdu, const CKYBuffer *object, CKYByte count)
+{
+    CKYStatus ret;
+    CKYBuffer buf;
+    CKYByte objectSize;
+
+    CKYBuffer_InitEmpty(&buf);
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, 0xcb);
+    CKYAPDU_SetP1(apdu, 0x3f);
+    CKYAPDU_SetP2(apdu, 0xff);
+
+    objectSize = CKYBuffer_Size(object);
+
+    ret = CKYBuffer_Reserve(&buf, 2+objectSize);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    }
+    ret = CKYBuffer_AppendChar(&buf, 0x5c);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    }
+    ret = CKYBuffer_AppendChar(&buf, objectSize);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    } 
+    ret = CKYBuffer_AppendCopy(&buf, object);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    } 
+    ret = CKYAPDU_SetSendDataBuffer(apdu, &buf);
+    if (ret != CKYSUCCESS) {
+	    goto fail;
+    } 
+    ret = CKYAPDU_AppendReceiveLen(apdu, count);
+fail:
+    CKYBuffer_FreeData(&buf);
+    return ret;
+}
+
