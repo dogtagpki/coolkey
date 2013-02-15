@@ -278,6 +278,7 @@ CKYStatus CKYAPDU_AppendSendDataBuffer(CKYAPDU *apdu, const CKYBuffer *buf);
 /* set Le in the APDU header to the amount of bytes expected to be
  * returned. */
 CKYStatus CKYAPDU_SetReceiveLen(CKYAPDU *apdu, CKYByte recvlen);
+CKYStatus CKYAPDU_AppendReceiveLen(CKYAPDU *apdu, CKYByte recvlen);
 
 /* set the parent loadmodule name */
 void CKY_SetName(char *name);

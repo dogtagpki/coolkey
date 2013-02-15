@@ -304,11 +304,14 @@ class Slot {
         ATR_MATCH = 0x04,
         APPLET_SELECTABLE = 0x08,
         APPLET_PERSONALIZED = 0x10,
-        CAC_CARD = 0x20
+        CAC_CARD = 0x20,
+        PIV_CARD = 0x40
     };
     enum {
 	NONCE_SIZE = 8
     };
+
+    static const SlotState GOV_CARD = (SlotState)(CAC_CARD|PIV_CARD);
 
   private:
     Log *log;
@@ -339,6 +342,9 @@ class Slot {
     bool fullTokenName;
     bool mCoolkey;
     bool mOldCAC;
+    bool mCACLocalLogin;
+    int pivContainer;
+    int pivKey;
 
     //enum { RW_SESSION_HANDLE = 1, RO_SESSION_HANDLE = 2 };
 
@@ -386,6 +392,7 @@ class Slot {
     const CKYBuffer *getATR();
     bool isLoggedIn();
     bool needLoggedIn();
+    bool getPIVLoginType();
     void testNonce();
 
     void addKeyObject(list<PKCS11Object>& objectList,
