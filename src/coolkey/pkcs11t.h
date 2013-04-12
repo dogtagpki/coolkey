@@ -1351,4 +1351,41 @@ typedef struct CK_PKCS5_PBKD2_PARAMS {
 
 typedef CK_PKCS5_PBKD2_PARAMS CK_PTR CK_PKCS5_PBKD2_PARAMS_PTR;
 
+/* The following EC Key Derivation Functions are defined */
+
+#define CKD_NULL                 0x00000001
+
+#define CKD_SHA1_KDF             0x00000002
+
+/* CK_ECDH1_DERIVE_PARAMS is new for v2.11. */
+
+ typedef CK_ULONG CK_EC_KDF_TYPE;
+
+/*  
+ *    CK_ECDH1_DERIVE_PARAMS provides the parameters to the
+ *    
+ *    CKM_ECDH1_DERIVE and CKM_ECDH1_COFACTOR_DERIVE mechanisms,
+ *   
+ *    where each party contributes one key pair.
+ *   
+ */
+
+typedef struct CK_ECDH1_DERIVE_PARAMS {
+
+  CK_EC_KDF_TYPE kdf;
+
+  CK_ULONG ulSharedDataLen;
+
+  CK_BYTE_PTR pSharedData;
+
+  CK_ULONG ulPublicDataLen;
+
+  CK_BYTE_PTR pPublicData;
+
+} CK_ECDH1_DERIVE_PARAMS;
+
+
+
+typedef CK_ECDH1_DERIVE_PARAMS CK_PTR CK_ECDH1_DERIVE_PARAMS_PTR;
+
 #endif

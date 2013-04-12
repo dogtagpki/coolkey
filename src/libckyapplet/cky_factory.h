@@ -67,6 +67,8 @@
 /* nonce validated  & Secure Channel */
 #define CKY_INS_IMPORT_KEY	0x32
 #define CKY_INS_COMPUTE_CRYPT	0x36
+#define CKY_INS_COMPUTE_ECC_SIGNATURE 0x37
+#define CKY_INS_COMPUTE_ECC_KEY_AGREEMENT 0x38
 #define CKY_INS_CREATE_PIN	0x40
 #define CKY_INS_CHANGE_PIN	0x44
 #define CKY_INS_CREATE_OBJ	0x5A
@@ -130,6 +132,7 @@
 #define CKY_DES_ECB_NOPAD	0x21
 
 /* operations (Cipher Direction) */
+#define CKY_DIR_NONE            0x00
 #define CKY_DIR_SIGN		0x01
 #define CKY_DIR_VERIFY		0x02
 #define CKY_DIR_ENCRYPT		0x03
@@ -194,6 +197,12 @@ CKYStatus CKYAPDUFactory_ComputeCryptFinal(CKYAPDU *apdu, CKYByte keyNumber,
 CKYStatus CKYAPDUFactory_ComputeCryptOneStep(CKYAPDU *apdu, CKYByte keyNumber, 
 			    CKYByte mode, CKYByte direction, CKYByte location,
 			    const CKYBuffer *data, const CKYBuffer *sig);
+CKYStatus CKYAPDUFactory_ComputeECCSignatureOneStep(CKYAPDU *apdu, CKYByte keyNumber,
+                             CKYByte location,
+                            const CKYBuffer *data, const CKYBuffer *sig);
+CKYStatus CKYAPDUFactory_ComputeECCKeyAgreementOneStep(CKYAPDU *apdu, CKYByte keyNumber,
+                             CKYByte location,
+                            const CKYBuffer *publicData, const CKYBuffer *secretKey);
 CKYStatus CKYAPDUFactory_CreatePIN(CKYAPDU *apdu, CKYByte pinNumber, 
 				CKYByte maxAttempts, const char *pinValue);
 CKYStatus CKYAPDUFactory_VerifyPIN(CKYAPDU *apdu, CKYByte pinNumber, 

@@ -281,7 +281,7 @@ CKYStatus CKYAPDU_SetReceiveLen(CKYAPDU *apdu, CKYByte recvlen);
 CKYStatus CKYAPDU_AppendReceiveLen(CKYAPDU *apdu, CKYByte recvlen);
 
 /* set the parent loadmodule name */
-void CKY_SetName(char *name);
+void CKY_SetName(const char *name);
 
 CKY_END_PROTOS
     

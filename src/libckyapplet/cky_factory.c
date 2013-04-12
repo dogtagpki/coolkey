@@ -183,6 +183,49 @@ fail:
 }
 
 CKYStatus
+CKYAPDUFactory_ComputeECCKeyAgreementOneStep(CKYAPDU *apdu, CKYByte keyNumber,
+                             CKYByte location,
+                            const CKYBuffer *publicData, const CKYBuffer *secretKey)
+{
+    CKYStatus ret      = CKYINVALIDARGS;
+    CKYSize   len;
+    CKYBuffer buf;
+
+    if (!publicData)
+        return ret;
+
+    if (!(len = CKYBuffer_Size(publicData)))
+        return ret;
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_COOLKEY);
+    CKYAPDU_SetINS(apdu, CKY_INS_COMPUTE_ECC_KEY_AGREEMENT);
+    CKYAPDU_SetP1(apdu, keyNumber);
+    CKYAPDU_SetP2(apdu, CKY_CIPHER_ONE_STEP);
+
+    CKYBuffer_InitEmpty(&buf);
+
+    ret = CKYBuffer_Reserve(&buf, 3);
+
+    if (ret == CKYSUCCESS)
+        ret = CKYBuffer_AppendChar(&buf, location);
+    if (ret == CKYSUCCESS)
+        ret = CKYBuffer_AppendShort(&buf, (unsigned short)len);
+    if (ret == CKYSUCCESS)
+        ret = CKYAPDU_SetSendDataBuffer(apdu, &buf);
+    if (ret == CKYSUCCESS)
+        ret = CKYAPDU_AppendSendDataBuffer(apdu, publicData);
+    if (ret == CKYSUCCESS && secretKey && 0 < (len = CKYBuffer_Size(secretKey))) {
+        CKYBuffer_Resize(&buf,2);
+        CKYBuffer_SetShort(&buf, 0, (unsigned short)len);
+        ret = CKYAPDU_AppendSendDataBuffer(apdu, &buf);
+        if (ret == CKYSUCCESS)
+            ret = CKYAPDU_AppendSendDataBuffer(apdu, secretKey);
+    }
+    CKYBuffer_FreeData(&buf);
+    return ret;
+}
+
+CKYStatus
 CKYAPDUFactory_ComputeCryptOneStep(CKYAPDU *apdu, CKYByte keyNumber, CKYByte mode,
 				CKYByte direction, CKYByte location,
 				const CKYBuffer *idata, const CKYBuffer *sig)
@@ -382,6 +425,49 @@ fail:
     CKYBuffer_FreeData(&buf);
     return ret;
 
+}
+
+CKYStatus
+CKYAPDUFactory_ComputeECCSignatureOneStep(CKYAPDU *apdu, CKYByte keyNumber,
+                             CKYByte location,
+                            const CKYBuffer *idata, const CKYBuffer *sig)
+{
+    CKYStatus ret      = CKYINVALIDARGS;
+    CKYSize   len;
+    CKYBuffer buf;
+
+    if (!idata)
+        return ret;
+
+    if (!(len = CKYBuffer_Size(idata)) && location != CKY_DL_OBJECT)
+        return ret;
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_COOLKEY);
+    CKYAPDU_SetINS(apdu, CKY_INS_COMPUTE_ECC_SIGNATURE);
+    CKYAPDU_SetP1(apdu, keyNumber);
+    CKYAPDU_SetP2(apdu, CKY_CIPHER_ONE_STEP);
+
+    CKYBuffer_InitEmpty(&buf);
+
+    ret = CKYBuffer_Reserve(&buf, 3);
+
+    if (ret == CKYSUCCESS)
+        ret = CKYBuffer_AppendChar(&buf, location);
+    if (ret == CKYSUCCESS)
+        ret = CKYBuffer_AppendShort(&buf, (unsigned short)len);
+    if (ret == CKYSUCCESS)
+        ret = CKYAPDU_SetSendDataBuffer(apdu, &buf);
+    if (ret == CKYSUCCESS)
+        ret = CKYAPDU_AppendSendDataBuffer(apdu, idata);
+    if (ret == CKYSUCCESS && sig && 0 < (len = CKYBuffer_Size(sig))) {
+        CKYBuffer_Resize(&buf,2);
+        CKYBuffer_SetShort(&buf, 0, (unsigned short)len);
+        ret = CKYAPDU_AppendSendDataBuffer(apdu, &buf);
+        if (ret == CKYSUCCESS)
+            ret = CKYAPDU_AppendSendDataBuffer(apdu, sig);
+    }
+    CKYBuffer_FreeData(&buf);
+    return ret;
 }
 
 CKYStatus

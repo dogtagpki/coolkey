@@ -58,6 +58,13 @@ class PKCS11Attribute {
 class PKCS11Object {
   public:
 
+    enum KeyType
+    {
+       rsa,
+       ecc,
+       unknown
+    };
+
     typedef list<PKCS11Attribute> AttributeList;
     typedef AttributeList::iterator AttributeIter;
     typedef AttributeList::const_iterator AttributeConstIter;
@@ -75,18 +82,19 @@ class PKCS11Object {
     PKCS11Object &operator=(PKCS11Object &cpy) { return *this; } //Disallow
 
   protected :
-    CKYBuffer pubKey; 
     char *name;
+    KeyType keyType;
+    CKYBuffer pubKey; 
 
   public:
     PKCS11Object(unsigned long muscleObjID, CK_OBJECT_HANDLE handle);
     PKCS11Object(unsigned long muscleObjID, const CKYBuffer *data,
         CK_OBJECT_HANDLE handle);
-    ~PKCS11Object() { delete [] label; delete [] name; CKYBuffer_FreeData(&pubKey); }
+    ~PKCS11Object() { delete [] label; delete [] name; CKYBuffer_FreeData(&pubKey); attributes.clear(); }
 
     PKCS11Object(const PKCS11Object& cpy) :
         attributes(cpy.attributes), muscleObjID(cpy.muscleObjID),
-        handle(cpy.handle), label(NULL),  name(NULL) { 
+        handle(cpy.handle), label(NULL),  name(NULL), keyType(cpy.keyType) { 
 			CKYBuffer_InitFromCopy(&pubKey,&cpy.pubKey); }
 
 
@@ -116,14 +124,15 @@ class PKCS11Object {
     const CKYBuffer *getPubKey(void) const {
 	return &pubKey;
     }
+
+    KeyType getKeyType() const { return keyType;}
+    void setKeyType(KeyType theType) { keyType = theType; }
 };
 
 class Key : public PKCS11Object {
-
   public:
     Key(unsigned long muscleObjID, const CKYBuffer *data, CK_OBJECT_HANDLE handle);
     void completeKey(const PKCS11Object &cert);
-	
 };
 
 class Cert : public PKCS11Object {
@@ -151,6 +160,25 @@ class Reader : public PKCS11Object {
   public:
     Reader(unsigned long muscleObjID, CK_OBJECT_HANDLE handle, 
 		const char *reader, const CKYBuffer *cardATR, bool isCoolkey);
+};
+
+class SecretKey : public PKCS11Object {
+    public: 
+      SecretKey(unsigned long muscleObjID, CK_OBJECT_HANDLE handle, CKYBuffer *secretKeyBuffer, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulAttributeCount);
+    private:
+      void adjustToKeyValueLength(CKYBuffer * secretKeyBuffer,CK_ULONG valueLength);
+
+};
+
+class DEREncodedSignature  {
+
+  protected :
+    CKYBuffer derEncodedSignature;
+  public:
+    DEREncodedSignature(const CKYBuffer *derSig);
+    ~DEREncodedSignature();
+    int getRawSignature(CKYBuffer *rawSig, unsigned int keySize);
+
 };
 
 class AttributeMatch {

@@ -221,6 +221,21 @@ typedef struct _CKYAppletArgComputeCrypt {
     const CKYBuffer *sig;
 } CKYAppletArgComputeCrypt;
 
+typedef struct _CKYAppletArgComputeECCSignature {
+    CKYByte   keyNumber;
+    CKYByte   location;
+    const CKYBuffer *data;
+    const CKYBuffer *sig;
+} CKYAppletArgComputeECCSignature;
+
+typedef struct _CKYAppletArgComputeECCKeyAgreement {
+    CKYByte keyNumber;
+    CKYByte location;
+    const CKYBuffer *publicValue;
+    const CKYBuffer *secretKey;
+} CKYAppletArgComputeECCKeyAgreement;
+
+
 typedef struct _CACAppletArgReadFile {
     CKYByte   type;
     CKYByte   count;
@@ -582,6 +597,18 @@ CKYStatus CKYApplet_GetIssuerInfo(CKYCardConnection *conn,
 
 CKYStatus CKYApplet_GetBuiltinACL(CKYCardConnection *conn,
 	 	CKYAppletRespGetBuiltinACL *gba, CKYISOStatus *apduRC);
+
+/** ECC commands
+ * *                                                  */
+
+CKYStatus CKYApplet_ComputeECCSignature(CKYCardConnection *conn, CKYByte keyNumber,
+    const CKYBuffer *data, CKYBuffer *sig,
+    CKYBuffer *result, const CKYBuffer *nonce, CKYISOStatus *apduRC);
+
+CKYStatus
+CKYApplet_ComputeECCKeyAgreement(CKYCardConnection *conn, CKYByte keyNumber,
+    const CKYBuffer *publicValue, CKYBuffer *sharedSecret,
+    CKYBuffer *result, const CKYBuffer *nonce, CKYISOStatus *apduRC);
 
 
 /*
