@@ -718,7 +718,7 @@ CKYAPDU_AppendReceiveLen(CKYAPDU *apdu, CKYByte recvlen)
 
 
 void
-CKY_SetName(char *p)
+CKY_SetName(const char *p)
 {
 }
     

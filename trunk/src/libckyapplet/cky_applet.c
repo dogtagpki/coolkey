@@ -103,6 +103,22 @@ CKYAppletFactory_ComputeCryptOneStep(CKYAPDU *apdu, const void *param)
 }
 
 CKYStatus
+CKYAppletFactory_ComputeECCSignatureOneStep(CKYAPDU *apdu, const void *param)
+{
+    const CKYAppletArgComputeECCSignature *ccs=(const CKYAppletArgComputeECCSignature *)param;
+    return CKYAPDUFactory_ComputeECCSignatureOneStep(apdu, ccs->keyNumber,
+                        ccs->location, ccs->data, ccs->sig);
+}
+
+CKYStatus
+CKYAppletFactory_ComputeECCKeyAgreementOneStep(CKYAPDU *apdu, const void *param)
+{
+
+    const CKYAppletArgComputeECCKeyAgreement *ccs=(const CKYAppletArgComputeECCKeyAgreement *)param;
+    return CKYAPDUFactory_ComputeECCKeyAgreementOneStep(apdu, ccs->keyNumber, ccs->location, ccs->publicValue, ccs->secretKey);
+}
+
+CKYStatus
 CKYAppletFactory_CreatePIN(CKYAPDU *apdu, const void *param)
 {
     const CKYAppletArgCreatePIN *cps = (const CKYAppletArgCreatePIN *)param;
@@ -748,6 +764,32 @@ CKYApplet_ComputeCryptProcess(CKYCardConnection *conn, CKYByte keyNumber,
 	&ccd, nonce, 0, CKYAppletFill_Null, NULL, apduRC);
 }
 
+/* computeECCValue returns data in the form :
+ *            len: short
+ *            data: byte[len]
+ * This fill routine returns A buffer with a copy of data and a length of len */
+static CKYStatus
+ckyAppletFill_ComputeECCValueFinal(const CKYBuffer *response,
+                                                CKYSize size, void *param)
+{
+    CKYBuffer *cbuf = (CKYBuffer *)param;
+    CKYSize respSize = CKYBuffer_Size(response);
+    CKYSize dataLen;
+
+    if (cbuf == 0) {
+        return CKYSUCCESS; /* app didn't want the result */
+    }
+    /* data response code + length code */
+    if (respSize < 4) {
+        return CKYAPDUFAIL;
+    }
+    dataLen = CKYBuffer_GetShort(response, 0);
+    if (dataLen > (respSize-4)) {
+        return CKYAPDUFAIL;
+    }
+    return CKYBuffer_Replace(cbuf, 0, CKYBuffer_Data(response)+2, dataLen);
+}
+
 /* computeCrypt returns data in the form :
  * 		len: short
  * 		data: byte[len]
@@ -891,6 +933,77 @@ CKYApplet_ComputeCrypt(CKYCardConnection *conn, CKYByte keyNumber,
     }
 
 fail:
+
+    return ret;
+}
+
+CKYStatus
+CKYApplet_ComputeECCKeyAgreement(CKYCardConnection *conn, CKYByte keyNumber,
+    const CKYBuffer *publicValue, CKYBuffer *sharedSecret,
+    CKYBuffer *result, const CKYBuffer *nonce, CKYISOStatus *apduRC)
+{
+    CKYStatus ret = CKYAPDUFAIL;
+    CKYAppletArgComputeECCKeyAgreement ccd;
+    CKYBuffer    empty;
+    CKYISOStatus status;
+    /* Routine creates a sym key, should easily fit in one apdu */
+
+    CKYBuffer_InitEmpty(&empty);
+    ccd.keyNumber = keyNumber;
+    ccd.location  = CKY_DL_APDU;
+
+    if (!apduRC)
+        apduRC = &status;
+
+    if (ccd.location == CKY_DL_APDU) {
+        ccd.publicValue = publicValue;
+        ccd.secretKey  = sharedSecret;
+        ret =   CKYApplet_HandleAPDU(conn,
+                            CKYAppletFactory_ComputeECCKeyAgreementOneStep, &ccd, nonce,
+                            CKY_SIZE_UNKNOWN, ckyAppletFill_ComputeECCValueFinal,
+                            result, apduRC);
+        if (ret == CKYAPDUFAIL && *apduRC == CKYISO_INCORRECT_P2) {
+            return ret;
+        }
+    } 
+
+    return ret;
+}
+
+CKYStatus
+CKYApplet_ComputeECCSignature(CKYCardConnection *conn, CKYByte keyNumber,
+    const CKYBuffer *data, CKYBuffer *sig,
+    CKYBuffer *result, const CKYBuffer *nonce, CKYISOStatus *apduRC)
+{
+    int         use2APDUs = 0;
+    int         use_dl_object =  0; 
+    short       dataSize = 0;
+    CKYStatus ret = CKYAPDUFAIL;
+    CKYAppletArgComputeECCSignature ccd;
+    CKYBuffer    empty;
+    CKYISOStatus status;
+
+    CKYBuffer_InitEmpty(&empty);
+    ccd.keyNumber = keyNumber;
+
+    /* Assume APDU, the signature can only get so big with our key sizes, ~ 130 for 521 bit key. */
+    ccd.location  = CKY_DL_APDU;
+
+    if (!apduRC)
+        apduRC = &status;
+
+    if (ccd.location == CKY_DL_APDU) {
+        ccd.data = data;
+        ccd.sig  = sig;
+        ret =   CKYApplet_HandleAPDU(conn,
+                            CKYAppletFactory_ComputeECCSignatureOneStep, &ccd, nonce,
+                            CKY_SIZE_UNKNOWN, ckyAppletFill_ComputeECCValueFinal,
+                            result, apduRC);
+        if (ret == CKYAPDUFAIL && *apduRC == CKYISO_INCORRECT_P2) {
+            return ret;
+        }
+
+    } 
 
     return ret;
 }

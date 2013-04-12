@@ -34,7 +34,6 @@
 #include "cky_base.h"
 #include "params.h"
 
-#define NULL 0
 
 /* static module data --------------------------------  */
 
@@ -70,11 +69,19 @@ typedef struct {
 /**********************************************************************
  ************************** MECHANISM TABLE ***************************
  **********************************************************************/
-static MechInfo
-mechanismList[] = {
+
+static const MechInfo
+rsaMechanismList[] = {
     {CKM_RSA_PKCS, { 1024, 4096, CKF_HW | CKF_SIGN | CKF_DECRYPT } }
 };
-static unsigned int numMechanisms = sizeof(mechanismList)/sizeof(MechInfo);
+
+static const MechInfo
+ecMechanismList[] = {
+    {CKM_ECDSA,{256,521,CKF_HW | CKF_SIGN | CKF_EC_F_P}},{ CKM_ECDSA_SHA1, {256, 521, CKF_HW | CKF_SIGN | CKF_EC_F_P}},{ CKM_ECDH1_DERIVE,{256, 521, CKF_HW | CKF_DERIVE | CKF_EC_F_P} }
+};
+
+unsigned int numRSAMechanisms = sizeof(rsaMechanismList)/sizeof(MechInfo);
+unsigned int numECMechanisms = sizeof(ecMechanismList)/sizeof(MechInfo);
 
 /* ------------------------------------------------------------ */
 
@@ -166,7 +173,6 @@ NOTSUPPORTED(C_GenerateKey, (CK_SESSION_HANDLE,CK_MECHANISM_PTR,CK_ATTRIBUTE_PTR
 NOTSUPPORTED(C_GenerateKeyPair, (CK_SESSION_HANDLE,CK_MECHANISM_PTR,CK_ATTRIBUTE_PTR,CK_ULONG,CK_ATTRIBUTE_PTR,CK_ULONG,CK_OBJECT_HANDLE_PTR,CK_OBJECT_HANDLE_PTR))
 NOTSUPPORTED(C_WrapKey, (CK_SESSION_HANDLE,CK_MECHANISM_PTR,CK_OBJECT_HANDLE,CK_OBJECT_HANDLE,CK_BYTE_PTR,CK_ULONG_PTR))
 NOTSUPPORTED(C_UnwrapKey, (CK_SESSION_HANDLE,CK_MECHANISM_PTR,CK_OBJECT_HANDLE,CK_BYTE_PTR,CK_ULONG,CK_ATTRIBUTE_PTR,CK_ULONG,CK_OBJECT_HANDLE_PTR))
-NOTSUPPORTED(C_DeriveKey, (CK_SESSION_HANDLE,CK_MECHANISM_PTR,CK_OBJECT_HANDLE,CK_ATTRIBUTE_PTR,CK_ULONG,CK_OBJECT_HANDLE_PTR))
 NOTSUPPORTED(C_GetFunctionStatus, (CK_SESSION_HANDLE))
 NOTSUPPORTED(C_CancelFunction, (CK_SESSION_HANDLE))
 
@@ -200,6 +206,10 @@ SUPPORTED(C_SeedRandom, seedRandom,
 SUPPORTED(C_GenerateRandom, generateRandom,
   (CK_SESSION_HANDLE hSession ,CK_BYTE_PTR data,CK_ULONG dataLen),
   (hSession, data, dataLen))
+SUPPORTED(C_DeriveKey,derive,
+  (CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
+  CK_OBJECT_HANDLE hBaseKey, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulAttributeCount, CK_OBJECT_HANDLE_PTR phKey ),
+  (hSession, pMechanism, hBaseKey, pTemplate, ulAttributeCount, phKey))
 
 /* non-specialized functions supported with the slot directly */
 
@@ -249,7 +259,7 @@ C_Initialize(CK_VOID_PTR pInitArgs)
 	log = new DummyLog();
     }
     log->log("Initialize called, hello %d\n", 5);
-    CKY_SetName("coolkey");
+    CKY_SetName((char *) "coolkey");
     slotList = new SlotList(log);
     initialized = TRUE;
     return CKR_OK;
@@ -347,6 +357,11 @@ CK_RV
 C_GetMechanismList(CK_SLOT_ID slotID, CK_MECHANISM_TYPE_PTR pMechanismList,
     CK_ULONG_PTR pulCount)
 {
+
+    const MechInfo *mechanismList = NULL;
+    unsigned int numMechanisms = 0;
+
+
     if( ! initialized ) {
         return CKR_CRYPTOKI_NOT_INITIALIZED;
     }
@@ -359,11 +374,21 @@ C_GetMechanismList(CK_SLOT_ID slotID, CK_MECHANISM_TYPE_PTR pMechanismList,
         }
 
         slotList->validateSlotID(slotID);
-        if( ! slotList->getSlot(
-            slotIDToIndex(slotID))->isTokenPresent() ) {
+
+        Slot *slot = slotList->getSlot(slotIDToIndex(slotID));
+
+        if( ! slot ||  ! slot->isTokenPresent() ) {
             return CKR_TOKEN_NOT_PRESENT;
         }
 
+        if ( slot->getIsECC()) {
+            mechanismList = ecMechanismList;
+            numMechanisms = numECMechanisms;
+        } else {
+            mechanismList = rsaMechanismList;
+            numMechanisms = numRSAMechanisms;
+        }
+  
         if( pMechanismList != NULL ) {
             if( *pulCount < numMechanisms ) {
                 rv = CKR_BUFFER_TOO_SMALL;
@@ -390,17 +415,34 @@ CK_RV
 C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
     CK_MECHANISM_INFO_PTR pInfo)
 {
+    const MechInfo *mechanismList = NULL;
+    unsigned int numMechanisms = 0;
+
     if( ! initialized ) {
         return CKR_CRYPTOKI_NOT_INITIALIZED;
     }
+
+
     try {
         log->log("C_GetMechanismInfo called\n");
         if( pInfo == NULL ) {
             throw PKCS11Exception(CKR_ARGUMENTS_BAD);
         }
         slotList->validateSlotID(slotID);
-        if( ! slotList->getSlot(slotIDToIndex(slotID))->isTokenPresent() ) {
+
+
+        Slot *slot = slotList->getSlot(slotIDToIndex(slotID));
+
+        if( ! slot ||  ! slot->isTokenPresent() ) {
             return CKR_TOKEN_NOT_PRESENT;
+        }
+
+        if ( slot->getIsECC()) {
+            mechanismList = ecMechanismList;
+            numMechanisms = numECMechanisms;
+        } else {
+            mechanismList = rsaMechanismList;
+            numMechanisms = numRSAMechanisms;
         }
 
         for(unsigned int i=0; i < numMechanisms; ++i ) {
