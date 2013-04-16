@@ -153,7 +153,7 @@ clean:
 #
 # The classpath needed to compile the Java source code.
 #
-BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/api.jar$(SEP)$(OPEN_PLATFORM_DIR)/jc211/bin/visaop20.jar"
+BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/api.jar$(SEP)$(OPEN_PLATFORM_DIR)/jc211/bin/visaop20.jar$(SEP)$(SAFENET_FRAMEWORK_DIR)"
 
 #BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar"
 #
@@ -162,8 +162,7 @@ BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_K
 $(JAVA_CLASS_FILES): $(JAVA_SRC_FILES)
 	mkdir -p $(CONVERTER_OUTPUT_DIR)
 	perl ./update_buildid.pl $(JAVA_SRC_FILES)
-	$(JAVAC) -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES)
-
+	$(JAVAC) -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES) 
 
 #############################################################################
 # The next step is to convert the regular Java class files into the Javacard
@@ -180,13 +179,16 @@ CONVERT_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/converter.jar$(SEP)$(JAVACARD_KIT_DIR
 #
 # Location of the .exp files, used for "linking" Javacard code.
 #
-EXPORT_PATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/Export Files"
+
+EXPORT_PATH_SLB=$(SLB_JAVA_DIR)/Toolkit/PRGMaker/Export Files
+
+EXPORT_PATH="$(EXPORT_PATH_SLB)$(SEP)$(OPEN_PLATFORM_DIR)/jc211/api21/com$(SEP)$(JAVACARD_KIT_DIR)/api_export_files$(SEP)$(SAFENET_FRAMEWORK_DIR)"
 
 #
 # build rule
 #
 $(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
-	@if [ "$(JAVACARD_KIT_DIR)" = "" -o "$(JAVA_HOME)" = "" -o "$(SLB_JAVA_DIR)" = "" -o "$(OPEN_PLATFORM_DIR)" = "" ]; then \
+	@if [ "$(JAVACARD_KIT_DIR)" = "" -o "$(JAVA_HOME)" = "" -o "$(OPEN_PLATFORM_DIR)" = "" ]; then \
 	    echo "Not all necessary variables have been set."; \
 	    echo "JAVACARD_KIT_DIR=$(JAVA_CARD_KIT_DIR)"; \
 	    echo "JAVA_HOME=$(JAVA_HOME)"; \
@@ -194,7 +196,23 @@ $(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
 	    echo "OPEN_PLATFORM_DIR=$(OPEN_PLATFORM_DIR)"; \
 	    exit 1; \
 	fi 
+ifeq ($(SLB_JAVA_DIR),)
+	echo "Do not run SLB converter!."
+	mkdir -p $(OPEN_PLATFORM_DIR)/jc211/api21/com/visa/openplatform/javacard
+	cp -f $(OPEN_PLATFORM_DIR)/jc211/api21/com/visa/openplatform/*.exp $(OPEN_PLATFORM_DIR)/jc211/api21/com/visa/openplatform/javacard
+else
+	echo "Run SLB converter!"
+endif	
+ifeq ($(SLB_JAVA_DIR),)
+	echo "Do not run SLB converter!."
+	mkdir -p $(OPEN_PLATFORM_DIR)/jc211/api21/com/visa/openplatform/javacard
+	cp -f $(OPEN_PLATFORM_DIR)/jc211/api21/com/visa/openplatform/*.exp $(OPEN_PLATFORM_DIR)/jc211/api21/com/visa/openplatform/javacard
+else
+	echo "Run SLB converter!"
+endif	
 	$(JAVA) -classpath ${CONVERT_CLASSPATH} com.sun.javacard.converter.Converter -classdir $(OUTPUT_DIR) -out EXP JCA CAP -exportpath $(EXPORT_PATH) -applet $(AID) $(APPLET_QUALIFIED_CLASS_NAME) -d $(OUTPUT_DIR) $(PACKAGE) $(PID) 1.0 
+	#cp $(CONVERTER_OUTPUT_DIR)/applet.cap applet-cap.cap
+	#cp $(CONVERTER_OUTPUT_DIR)/applet.cap applet-cap.cap
 	mv $(CONVERTER_OUTPUT_DIR)/applet.cap $@ 
 
 
@@ -203,7 +221,7 @@ $(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
 # token. This means preparing it to be verified by the on-card verifier, using
 # TrustedLogic's "CodeShield" technology. The Schlumberger SDK provides
 # a 'makeijc' program to do this. The output is applet.ijc, which is ready to
-# be loaded onto a token.
+# be loaded onto a token. Only do this if we point to the SDK
 
 #
 # Classpath for the IJC converter.
@@ -214,9 +232,14 @@ IJC_CLASSPATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/makeijc.jar"
 # build rule
 #
 $(CONVERTER_OUTPUT_DIR)/applet.ijc: $(CONVERTER_OUTPUT_DIR)/applet.jar
-	$(JAVA) -classpath $(IJC_CLASSPATH) com.slb.javacard.jctools.ijc.MakeIJC -verbose -expFileDir $(EXPORT_PATH) -type onCardVerifier $(CONVERTER_OUTPUT_DIR)/applet.jar
+ifeq ($(SLB_JAVA_DIR),)
 	-@mkdir -p .libs
-	cp $@ .libs/CardEdge.$(shell cat .buildid).ijc
+	cp $(CONVERTER_OUTPUT_DIR)/applet.jar .libs/CardEdge.$(shell cat .buildid).jar
+else
+	$(JAVA) -classpath $(IJC_CLASSPATH) com.slb.javacard.jctools.ijc.MakeIJC -verbose -expFileDir $(EXPORT_PATH_SLB) -type referenceOrder $(CONVERTER_OUTPUT_DIR)/applet.jar 
+	-@mkdir -p .libs 
+	cp $@ .libs/CardEdge.$(shell cat .buildid).ijc 
+endif
 
 export:
 
