@@ -1,4 +1,4 @@
-//  MUSCLE SmartCard Development
+
 //      Authors: Tommaso Cucinotta <cucinotta@sssup.it>
 //	         David Corcoran    <corcoran@linuxnet.com>
 //	         Ludovic Rousseau  <ludovic.rousseau@free.fr>
@@ -67,6 +67,7 @@ import javacardx.crypto.Cipher;
 
 import visa.openplatform.ProviderSecurityDomain;
 import visa.openplatform.OPSystem;
+import safenet.security.*;
 
 // Referenced classes of package com.redhat.ckey.applet:
 //	    MemoryManager, ObjectManager, ASN1
@@ -123,8 +124,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x4d38;
-    private static final short BUILDID_MINOR = (short) 0x7a3f;
+    private static final short BUILDID_MAJOR = (short) 0x516d;
+    private static final short BUILDID_MINOR = (short) 0x92ec;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -222,6 +223,8 @@ public class CardEdge extends Applet
     /* nonce validated  & Secure Channel */
     private static final byte INS_IMPORT_KEY    = (byte)0x32;
     private static final byte INS_COMPUTE_CRYPT = (byte)0x36;
+    private static final byte INS_COMPUTE_ECC_SIGNATURE = (byte) 0x37;
+    private static final byte INS_COMPUTE_ECC_KEY_AGREEMENT = (byte) 0x38;
     private static final byte INS_CREATE_PIN    = (byte)0x40;
     private static final byte INS_CHANGE_PIN    = (byte)0x44;
     private static final byte INS_CREATE_OBJ    = (byte)0x5A;
@@ -240,6 +243,7 @@ public class CardEdge extends Applet
     private static final byte INS_SEC_READ_IOBUF            = (byte)0x08;
     private static final byte INS_SEC_IMPORT_KEY_ENCRYPTED  = (byte)0x0A;
     private static final byte INS_SEC_START_ENROLLMENT      = (byte)0x0C;
+    private static final byte INS_SEC_ECC_START_ENROLLMENT  = (byte)0x0D;
 
 
     // * There have been memory problems on the card
@@ -354,6 +358,11 @@ public class CardEdge extends Applet
     private static final byte KEY_3DES            = 7;
     private static final byte KEY_3DES3           = 8;
     private static final byte KEY_RSA_PKCS8_PAIR  = 9;
+    private static final byte KEY_ECC_PKCS8_PAIR  = 14;
+    private static final byte KEY_ECC_F2M_PUBLIC      = 10;
+    private static final byte KEY_ECC_F2M_PRIVATE     = 11;
+    private static final byte KEY_ECC_FP_PUBLIC       = 12;
+    private static final byte KEY_ECC_FP_PRIVATE      = 13;
 
     private static final byte BLOB_ENC_PLAIN = 0;
 
@@ -428,6 +437,13 @@ public class CardEdge extends Applet
     };
     private static final short pkcs8_RSA_oid_size = 11;
 
+    private static final byte pkcs8_EC_oid[] = {
+       0x06,0x07, 0x2A, (byte) 0x86 ,0x48,(byte)0xCE,0x3D,0x02,0x01
+
+    };
+
+    private static final short pkcs8_EC_oid_size = 9;
+
     // PKCS #1 SHA1 encoding header (DER).
     private static final byte sha1encode[] = {
        // SEQUENCE 33 bytes
@@ -476,6 +492,7 @@ public class CardEdge extends Applet
 
     private Cipher[]      ciphers;        // persistent
     private KeyPair[]     keyPairs;       // persistent
+    private KeyPairSFNT[] keyPairsSFNT;
     private Key[]         keys;           // persistent
     private byte[]        keyMate;        // persistent
     private OwnerPIN[]    pins;           // persistent
@@ -496,7 +513,7 @@ public class CardEdge extends Applet
     private byte[]        iobuf;              // transient
     private byte[]        nonce;              // transient
     private short[]       loginCount;         // transient
-
+    private byte[]        digest;             // transient
 
     private CardEdge(byte bArray[], short bOffset, byte bLength)
     {
@@ -522,11 +539,14 @@ public class CardEdge extends Applet
         keyACLs       = new byte      [MAX_NUM_KEYS * KEY_ACL_SIZE];
         keyTries      = new byte      [MAX_NUM_KEYS];
         keyPairs      = new KeyPair   [MAX_NUM_KEYS];
+        keyPairsSFNT  = new KeyPairSFNT [MAX_NUM_KEYS];
         ciphers       = new Cipher    [MAX_NUM_KEYS];
         signatures    = new Signature [MAX_NUM_KEYS];
         default_nonce = new byte      [NONCE_SIZE];
         issuerInfo    = new byte      [ISSUER_INFO_SIZE];
 
+        digest = new byte [100];
+        
         for (byte i = 0; i < MAX_NUM_KEYS; i++) {
             keyTries[i] = MAX_KEY_TRIES;
             keyMate[i]  =  -1;
@@ -806,7 +826,7 @@ public class CardEdge extends Applet
     }
 
     /***********************************************************************
-     * Subroutines for ComputeCrypt APDU handler
+     * Subroutines for ECC and ComputeCrypt APDU handler
      */
 
     private void CryptInit(APDU apdu, byte buffer[], short bytesLeft)
@@ -1142,6 +1162,145 @@ public class CardEdge extends Applet
 	return false;
     }
 
+    private boolean ECCKeyAgreementProcessFinal(APDU apdu, byte buffer[], short bytesLeft)
+    {
+
+        if (bytesLeft < 3) {
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+            return true;
+        }
+
+        byte key_nb     = buffer[ISO7816.OFFSET_P1];
+        byte op     = buffer[ISO7816.OFFSET_P2];
+        byte data_location = buffer[ISO7816.OFFSET_CDATA];
+
+        byte[] src_buf;
+        byte[] dst_buf;
+        short  dst_len = 0;
+        short src_base;
+        short   dst_base = 2;
+        short src_avail;
+
+        switch(data_location) {
+        case DL_APDU:
+            src_buf = buffer;
+            dst_buf = buffer;
+            src_base = ISO7816.OFFSET_CDATA + 1;
+            src_avail = (short)(bytesLeft - 1);
+            break;
+
+        case DL_OBJECT:
+            src_buf = iobuf;
+            dst_buf = iobuf;
+            src_base = 0;
+            src_avail = iobuf_size;
+            break;
+
+        default:
+            ISOException.throwIt(SW_LOCATION_INVALID);
+            return true;
+        }
+
+        if (src_avail < 2) {
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+            return true;
+        }
+
+        short size = Util.getShort(src_buf, src_base);
+        if (src_avail < (short)(2 + size)) {
+            ISOException.throwIt(SW_DATA_CHUNK_SIZE_ERROR);
+            return true;
+        }
+
+        src_base += 2;
+        Key key = keys[key_nb];
+
+        short retSize = eccKeyAgreement(key_nb, src_buf, src_base,
+                         size, dst_buf, dst_base);
+
+        dst_len = retSize;
+        Util.setShort(dst_buf, ZEROS, dst_len);
+        dst_len += 2;
+        if(data_location == DL_APDU) {
+            apdu.setOutgoingAndSend(ZEROS,(short) dst_len);
+        } else {
+        // DL_OBJECT
+            iobuf_size = dst_len;
+        }
+
+        return false;
+    }
+
+    private boolean ECCSignProcessFinal(APDU apdu, byte buffer[], short bytesLeft)
+    {
+	byte prv_key_nb   = buffer[ISO7816.OFFSET_P1];
+        byte pub_key_nb = keyMate[prv_key_nb];
+        byte    op       = buffer[ISO7816.OFFSET_P2];
+        byte    data_location;
+        byte[]  src_buf;
+        byte[]  dst_buf;
+        short   src_base = ISO7816.OFFSET_CDATA;
+        short   dst_base = 2;
+        short   src_avail;
+        short   dst_len = 0;
+        short   dst_avail;
+        boolean doubleCheck = false;
+
+        short sigsize = 0;
+
+        // Did the APDU include enough data for the data_location?
+        if (bytesLeft < 1) {
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+            return false;
+        }
+
+        data_location = buffer[ src_base ];
+        switch(data_location) {
+        case DL_APDU: // write directy to the APDU
+            src_buf = buffer;
+            dst_buf = buffer;
+            src_base += 1;       // starts right after data_location
+            src_avail = (short)(bytesLeft - 1);
+            dst_avail = 255;  // usable bytes in APDU
+            break;
+
+        case DL_OBJECT: // use heap object
+            src_buf = iobuf;
+            dst_buf = iobuf;
+            src_base = 0;
+            src_avail = iobuf_size;
+            dst_avail = 258; // 2 byte length + 256 byte data
+            break;
+
+        default:
+            ISOException.throwIt(SW_LOCATION_INVALID);
+            return false;
+        }
+
+        short size = Util.getShort(src_buf, src_base);
+
+        src_base += 2;
+        if (src_avail < (short)(2 + size) || size < 0) {
+            ISOException.throwIt(SW_DATA_CHUNK_SIZE_ERROR);
+            return false;
+        }
+
+        sigsize = eccSignHash(prv_key_nb, src_buf , (short) src_base ,
+                          (short) size, dst_buf , (short) dst_base, true );
+
+        dst_len = sigsize;
+        Util.setShort(dst_buf, ZEROS, dst_len);
+        dst_len += 2;
+        if(data_location == DL_APDU) {
+            apdu.setOutgoingAndSend(ZEROS,(short) dst_len);
+        } else {
+        // DL_OBJECT
+            iobuf_size = dst_len;
+        }
+
+	return false;
+    }
+
     /***********************************************************************
      * APDU handlers
      */
@@ -1182,6 +1341,61 @@ public class CardEdge extends Applet
 	    break;
 	}
     }
+
+    private void ComputeECCKeyAgreement(APDU apdu, byte buffer[])
+    {
+
+        short bytesLeft = (short)(0xff & buffer[ISO7816.OFFSET_LC]);
+
+        byte key_nb = buffer[ISO7816.OFFSET_P1];
+        if (key_nb < 0 || key_nb >= MAX_NUM_KEYS || keys[key_nb] == null) {
+            ISOException.throwIt(SW_INCORRECT_P1);
+        }
+        if (!authorizeKeyUse(key_nb)) {
+            ISOException.throwIt(SW_UNAUTHORIZED);
+        }
+
+        byte op = buffer[ISO7816.OFFSET_P2];
+        boolean repeat = false;
+
+        switch(op) {
+
+        case OP_ONE_STEP:
+              repeat =  ECCKeyAgreementProcessFinal(apdu, buffer, bytesLeft);
+            break;
+
+        default:
+            ISOException.throwIt(SW_INCORRECT_P2);
+            break;
+        }
+
+    }
+
+    private void ComputeECCSignature(APDU apdu, byte buffer[])
+    {
+        short bytesLeft = (short)(0xff & buffer[ISO7816.OFFSET_LC]);
+
+        byte key_nb = buffer[ISO7816.OFFSET_P1];
+        if (key_nb < 0 || key_nb >= MAX_NUM_KEYS || keys[key_nb] == null) {
+            ISOException.throwIt(SW_INCORRECT_P1);
+        }
+        if (!authorizeKeyUse(key_nb)) {
+            ISOException.throwIt(SW_UNAUTHORIZED);
+        }
+
+        byte op = buffer[ISO7816.OFFSET_P2];
+        boolean repeat = false;
+
+        switch(op) {
+        case OP_ONE_STEP:
+            repeat = ECCSignProcessFinal(apdu, buffer, bytesLeft);
+            break;
+        default:
+            ISOException.throwIt(SW_INCORRECT_P2);
+            break;
+        }
+    }
+
 
     private void CreateObject(APDU apdu, byte buffer[])
     {
@@ -1377,7 +1591,7 @@ public class CardEdge extends Applet
     }
 
     private void importKeyBlob(byte key_nb, byte mate_nb, 
-				byte[] buf, short offset, short avail) 
+				byte[] buf, short offset, short avail,byte alg, byte[] apdu_buffer, short eccPublicKeyBase) 
     {
 	offset++;
 	avail--;
@@ -1387,6 +1601,20 @@ public class CardEdge extends Applet
 	short key_size = Util.getShort(buf, offset);
 	offset += 2;
 	avail -= 2;
+
+        byte typePublic = 0, typePrivate = 0;
+
+        if (alg != 0) { // ECC related alg passed in from above
+
+            if (alg == KeyPair.ALG_EC_F2M) {
+                typePublic  =  KEY_ECC_F2M_PUBLIC;
+                typePrivate =  KEY_ECC_F2M_PRIVATE;
+            } else {
+                typePublic  =  KEY_ECC_FP_PUBLIC;
+                typePrivate =  KEY_ECC_FP_PRIVATE;
+            }
+
+        }
 	
 	switch(key_type)
 	{
@@ -1513,6 +1741,75 @@ public class CardEdge extends Applet
 		avail -= size;
 		break;
 	    }
+
+            // For ECC support only the PKCS8 blob
+
+            case KEY_ECC_PKCS8_PAIR:
+            {
+
+                ECPublicKeyImp pub_key =
+                   (ECPublicKeyImp)getKey(mate_nb, typePublic, key_size);
+
+                ECPrivateKeyImp prv_key =
+                    (ECPrivateKeyImp)getKey(key_nb, typePrivate, key_size);
+
+                short size, end;
+                short base = offset;
+
+                if (asn1 == null) {
+                    asn1 = new ASN1();
+                }
+
+                avail += offset; /* convert avail from a size to and an end of
+                                  * buffer offset */
+
+                // strip off the sequence
+                offset = asn1.Unwrap(buf,offset,avail, (short)0);
+                avail = asn1.GetEnd();
+                // skip the version
+                offset = asn1.Skip(buf,offset,avail, (short)1);
+                // fetch and check the oid
+                offset = asn1.Unwrap(buf,offset,avail, (short)2);
+                if (Util.arrayCompare(buf, offset, pkcs8_EC_oid, ZEROS,
+                                        pkcs8_EC_oid_size) != 0) {
+                    ISOException.throwIt(SW_BAD_ALGID_FOR_KEY);
+
+                }
+
+                //skip the alg, we have it already
+
+                offset = asn1.GetNext();
+
+                // Unwrap EC Private Key  
+                offset = asn1.Unwrap(buf,offset, avail, (short)4); 
+
+                // Unwrap Sequence
+
+                avail = asn1.GetEnd();
+                offset = asn1.Unwrap(buf,offset, avail, (short)5);
+                // Skip the version
+                offset = asn1.Skip(buf,offset,avail, (short)6);
+
+                // Get private octet string
+
+                offset = asn1.Unwrap(buf, offset, avail, (short) 7);
+
+                short keyLen = asn1.GetSize();
+
+                // Set the private key
+                prv_key.setS(buf, offset, keyLen);
+
+
+                // Get our added on public key, added to apdu command.
+
+                short publicKeyLen  = Util.makeShort(ZEROB,apdu_buffer[eccPublicKeyBase]);
+
+                // Set the public key 
+
+                pub_key.setW(apdu_buffer,(short) ( eccPublicKeyBase + 1), publicKeyLen);
+
+                break;
+            }
 
 	    case KEY_RSA_PKCS8_PAIR:
 	    {
@@ -1705,7 +2002,7 @@ public class CardEdge extends Applet
  	    keyMate[mate_nb] = key_nb;
  	    keyMate[key_nb] = mate_nb;
    	}
- 	importKeyBlob(key_nb, mate_nb, keybuf, base, keybuf_size);
+ 	importKeyBlob(key_nb, mate_nb, keybuf, base, keybuf_size, (byte) 0, buffer, (short) 0);
  
  	// set the ACL value
  	Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA+4), keyACLs, 
@@ -2054,6 +2351,22 @@ public class CardEdge extends Applet
 	LogoutAllIdentity(pin_nb);
     }
 
+    private short outputECCPublicKey(short key_nb, byte[] buf, short offset, short key_size) {
+        buf[offset] = ZEROB; // plaintext
+        offset++;
+        buf[offset] = (byte) 10; // ECC public key
+        offset++;
+        Util.setShort(buf, offset, (short)(key_size)); // Key Size. 
+        offset+=2;
+
+        ECPublicKeyImp key = (ECPublicKeyImp) keys[key_nb];
+
+        short keyLen = key.getW(buf, (short) (offset + 2));
+        Util.setShort(buf,offset, keyLen);
+
+        return (short) (keyLen + 6);
+    }
+
     private short outputRSAPublicKey(short key_nb, byte[] buf, short offset, short key_size) {
 	buf[offset] = ZEROB; // plaintext
 	offset++;
@@ -2075,6 +2388,10 @@ public class CardEdge extends Applet
 	return (short) (8 + modsize + expsize);
     }
 
+    private void startECCEnrollment(APDU apdu, byte[] buffer) {
+
+        startEnrollment(apdu, buffer);
+    }
     
 
     private void startEnrollment(APDU apdu, byte[] buffer) {
@@ -2084,6 +2401,10 @@ public class CardEdge extends Applet
 	byte usage = (byte) ((buffer[ISO7816.OFFSET_P2] >> 4) & 0xf);
 	short acl = 0;
         short key_size = Util.getShort(buffer, (short)(ISO7816.OFFSET_CDATA+1));
+        boolean isECC = false;
+
+        byte alg_id = buffer[ISO7816.OFFSET_CDATA];
+
 
 	if ((buffer[ISO7816.OFFSET_P1] == 0) 
 					&& (buffer[ISO7816.OFFSET_P2] == 0)) {
@@ -2100,7 +2421,6 @@ public class CardEdge extends Applet
 	} else {
 	   acl = (short) (1 << owner);
 	}
-
 	
 	if (prv_key_nb < 0 || prv_key_nb >= MAX_NUM_KEYS)
 	    ISOException.throwIt(SW_INCORRECT_P1);
@@ -2118,47 +2438,162 @@ public class CardEdge extends Applet
 		!authorizeKeyWrite(pub_key_nb))
 	    ISOException.throwIt(SW_UNAUTHORIZED);
 
-	if( buffer[ISO7816.OFFSET_LC] != (byte) 23 ) {
+        if (alg_id == KeyPair.ALG_EC_F2M  || alg_id == KeyPair.ALG_EC_FP ) {
+            //ECC 
+            isECC = true;
+        }
+
+
+	if( !isECC & buffer[ISO7816.OFFSET_LC] != (byte) 23 ) {
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 	}
 
 	ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
 	boolean verified = false;
 	verified = domain.decryptVerifyKey(channelID, apdu, (short) 9);
+
 	if (!verified) {
 	    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
 	}
 
-	GenerateKeyPairRSA(apdu, buffer, prv_key_nb, pub_key_nb, acl);
+        short pubkeysize = 0;
+        short sigsize = 0;
 
-	// copy public key to output object
-	short pubkeysize = outputRSAPublicKey(pub_key_nb, iobuf, (short)2, (short) key_size);
-	short modsize = (short) ((short)key_size / (short) 8);
+        if (isECC) {
+            //ECC 
+            GenerateKeyPairECC(apdu, buffer, prv_key_nb, pub_key_nb, acl);  
 
-	Util.setShort(iobuf, ZEROS, pubkeysize);
+            pubkeysize = outputECCPublicKey(pub_key_nb, iobuf, (short)2, (short) key_size);
 
-	// Compute digest over public key and decrypted challenge.
-	// Write the digest into the iobuf.
-	Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,
+            Util.setShort(iobuf, ZEROS, pubkeysize);
+
+            // Compute digest over EC public key and decrypted challenge.
+            // Write the digest into the iobuf.
+
+            // Copy over the wrapped challenge
+            Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,
+                                (short)(2 + pubkeysize), (short)16);
+
+            // And public EC key
+            doDigest(iobuf, (short)2, (short)(16+pubkeysize),
+                 iobuf, (short)(2+pubkeysize));
+
+
+            //Save off digest if we want to do a signature verification later
+            Util.arrayCopyNonAtomic(iobuf,(short) (2 + pubkeysize),digest,(short) 0, (short) shaDigest.getLength());
+
+            // Perform EC sign and verify operation.
+            sigsize = eccSignHash(prv_key_nb, iobuf, (short) (2+pubkeysize),
+                          (short) shaDigest.getLength(), iobuf, (short) (2+pubkeysize+2), false);
+
+            Util.setShort(iobuf, (short) (2 + pubkeysize), sigsize);
+
+            Util.arrayCopyNonAtomic(digest, (short) 0,  iobuf, (short) (2 + pubkeysize + 2 + sigsize), (short) shaDigest.getLength());
+
+            iobuf_size = (short) (2 + pubkeysize + 2 + sigsize + shaDigest.getLength());
+
+            Util.setShort(buffer, ZEROS, iobuf_size);
+            apdu.setOutgoingAndSend(ZEROS, (short)2);
+        } else {  
+            // RSA
+
+	    GenerateKeyPairRSA(apdu, buffer, prv_key_nb, pub_key_nb, acl);
+
+	    // copy public key to output object
+	    pubkeysize = outputRSAPublicKey(pub_key_nb, iobuf, (short)2, (short) key_size);
+	    short modsize = (short) ((short)key_size / (short) 8);
+
+	    Util.setShort(iobuf, ZEROS, pubkeysize);
+
+	    // Compute digest over public key and decrypted challenge.
+	    // Write the digest into the iobuf.
+	    Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,
 				(short)(2 + pubkeysize), (short)16);
-	doDigest(iobuf, (short)2, (short)(16+pubkeysize),
+	    doDigest(iobuf, (short)2, (short)(16+pubkeysize),
 		 iobuf, (short)(2+pubkeysize+modsize) );
-	// Sign the digest, writing the signature over the digest in the iobuf
-	short sigsize = handSign(prv_key_nb, iobuf, (short) (2+pubkeysize+modsize),
-	    (short)shaDigest.getLength(), iobuf, (short)(2+pubkeysize+2), modsize);
+	    // Sign the digest, writing the signature over the digest in the iobuf
+	    sigsize = handSign(prv_key_nb, iobuf, (short) (2+pubkeysize+modsize),
+	        (short)shaDigest.getLength(), iobuf, (short)(2+pubkeysize+2), modsize);
 
-	Util.setShort(iobuf, (short)(2 + pubkeysize), sigsize);
+	    Util.setShort(iobuf, (short)(2 + pubkeysize), sigsize);
 
-	iobuf_size = (short) (2 + pubkeysize + 2 + sigsize);
+	    iobuf_size = (short) (2 + pubkeysize + 2 + sigsize);
 
-	Util.setShort(buffer, ZEROS, iobuf_size);
-	apdu.setOutgoingAndSend(ZEROS, (short)2);
+	    Util.setShort(buffer, ZEROS, iobuf_size);
+	    apdu.setOutgoingAndSend(ZEROS, (short)2);
+
+        }
+
+    }
+
+    //Sign hash with ECC private key .
+    // Hard code for ALG_ECDSA_SHA
+
+    private short eccSignHash(byte key_nb, byte inbuf[], short inOffset,
+                        short len, byte outbuf[], short outOffset, boolean debug)
+    {
+ 
+        SignatureSFNT eccSig = null;
+
+        ECPrivateKeyImp ecPrivateKey = (ECPrivateKeyImp) keys[key_nb];
+
+        try {
+            eccSig = SignatureSFNT.getInstance(SignatureSFNT.ALG_ECDSA_SHA, false); 
+            eccSig.init(ecPrivateKey, SignatureSFNT.MODE_SIGN);
+        } catch (CryptoException e) {
+            ISOException.throwIt(e.getReason());
+        }
+
+        short sigLen = 0;
+
+        try {
+            sigLen = eccSig.signHash(inbuf,
+                    inOffset,
+                    len,
+                    outbuf,
+                    outOffset);
+
+        } catch(CryptoException e) {
+            ISOException.throwIt(e.getReason());
+        }
+
+        return sigLen;
+    }
+
+    private short eccKeyAgreement(byte key_nb, byte inbuf[], short inOffset,
+                        short len, byte outbuf[], short outOffset)
+    {
+
+        ECPrivateKeyImp ecPrivateKey = (ECPrivateKeyImp) keys[key_nb];
+
+        KeyAgreementSFNT eccAgree = null;
+        try {
+            eccAgree = new KeyAgreementSFNT(KeyAgreementSFNT.ALG_EC_SVDP_DH, false);
+            if (eccAgree == null) {
+                ISOException.throwIt(SW_NO_MEMORY_LEFT);
+            }
+            eccAgree.init(ecPrivateKey);
+        } catch (CryptoException e) {
+            ISOException.throwIt(e.getReason());
+        }
+
+        short keyLen = 0;
+
+        try {
+            keyLen = eccAgree.generateSecret(inbuf, inOffset,
+                                                   len, outbuf, outOffset);
+        } catch(CryptoException e) {
+            ISOException.throwIt(e.getReason());
+        }
+
+        return keyLen;
 
     }
 
     //
     // HandSign hard codes SHA1.
     //
+
     private short handSign(byte key_nb, byte inbuf[], short inOffset, 
 			short len, byte outbuf[], short outOffset, short modsize)
     {
@@ -2182,7 +2617,87 @@ public class CardEdge extends Applet
 	return ciph.doFinal(outbuf, outOffset, modsize, 
 				   outbuf, outOffset);
     }
-	
+
+    private void GenerateKeyPairECC(APDU apdu, byte buffer[],
+        byte prv_key_nb, byte pub_key_nb, short prv_acl)
+    {
+        byte alg_id = buffer[ISO7816.OFFSET_CDATA];
+        short key_size = Util.getShort(buffer, (short)(ISO7816.OFFSET_CDATA+1));
+        byte options = buffer[ISO7816.OFFSET_CDATA+3];
+
+        byte typePublic, typePrivate = 0;
+
+        if (alg_id == KeyPair.ALG_EC_F2M) {
+            typePublic  =  KEY_ECC_F2M_PUBLIC;
+            typePrivate =  KEY_ECC_F2M_PRIVATE;
+        } else {
+            typePublic  =  KEY_ECC_FP_PUBLIC;
+            typePrivate =  KEY_ECC_FP_PRIVATE;
+        }
+
+
+
+        //
+        // once we've paired up keys, make sure those keys are always
+        // mated keys. This may be restrictive, but we already require
+        // that once we create a key, that key must always have the same
+        // key type, even if we overwrite it, so also requiring mated
+        // keys to remain consistant is  a reasonable restriction.
+        //
+        if ( ((keyMate[pub_key_nb] != -1)
+                                && (keyMate[pub_key_nb] != prv_key_nb))
+           || ((keyMate[prv_key_nb] != -1)
+                                && (keyMate[prv_key_nb] != pub_key_nb)) ) {
+            ISOException.throwIt(SW_INCONSTANT_KEYPAIRING);
+        }
+
+        ECPublicKeyImp pub_key = (ECPublicKeyImp) getKey(pub_key_nb, typePublic, key_size);
+
+        ECPrivateKeyImp prv_key = (ECPrivateKeyImp)getKey(prv_key_nb, typePrivate, key_size);
+
+        keyMate[pub_key_nb] = prv_key_nb;
+        keyMate[prv_key_nb] = pub_key_nb;
+
+        // set private key ACLs
+        short index = (short) (prv_key_nb * KEY_ACL_SIZE);
+        Util.setShort(keyACLs, index, (short) NO_ONE_ACL);
+        index += 2;
+        // only RA may write
+        Util.setShort(keyACLs, index, (short) RA_ACL);
+        index += 2;
+        Util.setShort(keyACLs, index, (short) prv_acl);
+
+        // set public key ACLs
+        index = (short) (pub_key_nb * KEY_ACL_SIZE);
+        Util.setShort(keyACLs, index, (short) ANY_ONE_ACL);
+        index += 2;
+        // only RA may write
+        Util.setShort(keyACLs, index, (short) RA_ACL);
+        index += 2;
+        Util.setShort(keyACLs, index, (short) ANY_ONE_ACL);
+
+        if (pub_key.isInitialized())
+            pub_key.clearKey();
+
+        if (keyPairsSFNT[pub_key_nb] == null && keyPairsSFNT[prv_key_nb] == null)
+        {
+            keyPairsSFNT[pub_key_nb] = new KeyPairSFNT(pub_key, prv_key);
+            keyPairsSFNT[prv_key_nb] = keyPairsSFNT[pub_key_nb];
+        } else if (keyPairsSFNT[pub_key_nb] != keyPairsSFNT[prv_key_nb])
+            ISOException.throwIt(SW_OPERATION_NOT_ALLOWED);
+
+        KeyPairSFNT kp = keyPairsSFNT[pub_key_nb];
+
+        if (kp.getPublic() != pub_key || kp.getPrivate() != prv_key)
+            ISOException.throwIt(SW_INTERNAL_ERROR);
+
+        try {
+            kp.genKeyPair();
+        } catch (CryptoException e) {
+            ISOException.throwIt(e.getReason());
+        }
+
+    }	
 
     private void GenerateKeyPairRSA(APDU apdu, byte buffer[],
 	byte prv_key_nb, byte pub_key_nb, short prv_acl)
@@ -2260,9 +2775,12 @@ public class CardEdge extends Applet
 	short acl = 0;
 	short obj_class = Util.getShort(buffer, ISO7816.OFFSET_CDATA);
 	short obj_id = Util.getShort(buffer, (short)(ISO7816.OFFSET_CDATA+2));
+        byte  alg = buffer[ISO7816.OFFSET_CDATA+5];
         byte keybuf[];
         short keybuf_size;
         short base;
+        short eccPublicKeyBase = 0;
+        byte  isECC = 0;
 	
 
 	if (owner == 0xf) {
@@ -2339,6 +2857,7 @@ public class CardEdge extends Applet
 	    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
 	}
 
+
 	if( obj_class == (short)0xffff && 
 		(obj_id == (short)0xffff || obj_id == (short)0xfffe ) ) {
 	    // I/O Object
@@ -2363,6 +2882,11 @@ public class CardEdge extends Applet
         // name the key type (it's not encrypted, so we can grab it early */
 	byte key_type = keybuf[(short)(base+KEYBLOB_OFFSET_KEY_TYPE)];
 
+        if (key_type == KEY_ECC_PKCS8_PAIR) {  // ECC key inside of blob
+            isECC = 1;
+        // For ECC only we send along the public key point with the apdu
+            eccPublicKeyBase =(short)( ivOffset + ivLength + 1 );
+        }
 	// get the des key to decrypt the private key
         if (keybuf[base] == 0x01) { // BLOB_ENC_ENCRYPTED
 	  DESKey des3 = (DESKey) KeyBuilder.buildKey(
@@ -2390,7 +2914,10 @@ public class CardEdge extends Applet
         try {
 	    if (key_type == KEY_RSA_PRIVATE || 
 			key_type == KEY_RSA_PRIVATE_CRT || 
-					key_type == KEY_RSA_PKCS8_PAIR) {
+					key_type == KEY_RSA_PKCS8_PAIR
+                                                        ||
+                                                         key_type == KEY_ECC_PKCS8_PAIR
+             ) {
 		//
 		// once we've paired up keys, make sure those keys are always
 		// mated keys. This may be restrictive, but we already require
@@ -2410,11 +2937,11 @@ public class CardEdge extends Applet
   	    }
 	    // if it doesn't start with a sequence, it's not DER data,
 	    // don't try to decode it.
-	    if ((key_type == KEY_RSA_PKCS8_PAIR) && 
+	    if ((key_type == KEY_RSA_PKCS8_PAIR || (key_type == KEY_ECC_PKCS8_PAIR)) && 
 		(keybuf[(short)(base+KEYBLOB_OFFSET_KEY_DATA)] != 0x30)) {
 		ISOException.throwIt(SW_BAD_WRAPPED_PRIV_KEY);
 	    }
-	    importKeyBlob(prv_key_nb, pub_key_nb, keybuf, base, keybuf_size);
+	    importKeyBlob(prv_key_nb, pub_key_nb, keybuf, base, keybuf_size,alg,buffer, eccPublicKeyBase);
 	} finally {
 	    // we're done with the keybuf, just clear it out now
 	    Util.arrayFillNonAtomic(keybuf, base, keybuf_size, ZEROB);
@@ -2428,7 +2955,7 @@ public class CardEdge extends Applet
 	Util.setShort(keyACLs, index, (short) RA_ACL);
 	index += 2;
 	Util.setShort(keyACLs, index, (short) acl);
-	if (key_type == KEY_RSA_PKCS8_PAIR) {
+	if (key_type == KEY_RSA_PKCS8_PAIR || key_type == KEY_ECC_PKCS8_PAIR) {
 	    // set public key ACLs
 	    index = (short) (pub_key_nb * KEY_ACL_SIZE);
 	    Util.setShort(keyACLs, index, (short) ANY_ONE_ACL); 
@@ -2689,7 +3216,19 @@ public class CardEdge extends Applet
 	{
 	    if (0 == (authenticated_id & create_key_ACL))
 		ISOException.throwIt(SW_UNAUTHORIZED);
-	    keys[key_nb] = KeyBuilder.buildKey(jc_key_type, key_size, false);
+
+            try {
+
+                if (jc_key_type == KeyBuilderSFNT.TYPE_EC_FP_PUBLIC || 
+                       jc_key_type == KeyBuilderSFNT.TYPE_EC_FP_PRIVATE)  {
+                    keys[key_nb] = KeyBuilderSFNT.buildKey( jc_key_type, key_size, false);
+                } else {
+	            keys[key_nb] = KeyBuilder.buildKey( jc_key_type ,  key_size , false);
+                }
+            } catch(CryptoException e) {
+                ISOException.throwIt(e.getReason());
+            }
+
 	} else
 	if (keys[key_nb].getSize() != key_size 
 		|| keys[key_nb].getType() != jc_key_type)
@@ -2709,6 +3248,18 @@ public class CardEdge extends Applet
 
 	case KeyBuilder.TYPE_RSA_CRT_PRIVATE:
 	    return KEY_RSA_PRIVATE_CRT;
+
+        case KeyBuilder.TYPE_EC_F2M_PRIVATE:
+            return KEY_ECC_F2M_PRIVATE;
+
+        case KeyBuilder.TYPE_EC_F2M_PUBLIC:
+            return KEY_ECC_F2M_PUBLIC;
+
+        case KeyBuilder.TYPE_EC_FP_PRIVATE:
+            return KEY_ECC_FP_PRIVATE;
+
+        case KeyBuilder.TYPE_EC_FP_PUBLIC:
+            return KEY_ECC_FP_PUBLIC;
 
 	case ALG_DES:
 	    if (key.getSize() == KeyBuilder.LENGTH_DES)
@@ -2767,6 +3318,18 @@ public class CardEdge extends Applet
 	case KEY_3DES3:
 	    return KeyBuilder.TYPE_DES;
 
+        case KEY_ECC_F2M_PUBLIC:
+            return 0;
+
+        case KEY_ECC_F2M_PRIVATE:
+            return 0;
+
+        case KEY_ECC_FP_PUBLIC:
+            return KeyBuilderSFNT.TYPE_EC_FP_PUBLIC;
+
+        case KEY_ECC_FP_PRIVATE:
+            return KeyBuilderSFNT.TYPE_EC_FP_PRIVATE;
+
 	default:
 	    ISOException.throwIt(SW_INVALID_PARAMETER);
 	    break;
@@ -2787,6 +3350,8 @@ public class CardEdge extends Applet
 	switch (ins) {
 	case INS_IMPORT_KEY:
 	case INS_COMPUTE_CRYPT:
+        case INS_COMPUTE_ECC_SIGNATURE:
+        case INS_COMPUTE_ECC_KEY_AGREEMENT:
 	case INS_CREATE_PIN:
 	case INS_CREATE_OBJ:
 	case INS_DELETE_OBJ:
@@ -2802,6 +3367,9 @@ public class CardEdge extends Applet
     {
 	iobuf = JCSystem.makeTransientByteArray(IOBUF_ALLOC,
         		    JCSystem.CLEAR_ON_DESELECT);
+
+        digest = JCSystem.makeTransientByteArray((short) 100,
+                            JCSystem.CLEAR_ON_DESELECT);
 	ciph_dirs = JCSystem.makeTransientByteArray(MAX_NUM_KEYS,
 		    JCSystem.CLEAR_ON_DESELECT);
 	//
@@ -2839,6 +3407,14 @@ public class CardEdge extends Applet
 	case INS_COMPUTE_CRYPT:
 	    ComputeCrypt(apdu, buffer);
 	    break;
+
+        case INS_COMPUTE_ECC_SIGNATURE:
+            ComputeECCSignature(apdu, buffer);
+            break;
+
+        case INS_COMPUTE_ECC_KEY_AGREEMENT:
+            ComputeECCKeyAgreement(apdu, buffer);
+            break;
 
 	case INS_VERIFY_PIN:
 	    VerifyPIN(apdu, buffer);
@@ -2952,6 +3528,10 @@ public class CardEdge extends Applet
 	case INS_SEC_START_ENROLLMENT:
 	    startEnrollment(apdu, buffer);
 	    break;
+
+        case INS_SEC_ECC_START_ENROLLMENT:
+            startECCEnrollment(apdu,  buffer);
+            break;
  
 	case INS_SEC_IMPORT_KEY_ENCRYPTED:
 	    importKeyEncrypted(apdu, buffer);
@@ -2984,6 +3564,10 @@ public class CardEdge extends Applet
 	case INS_COMPUTE_CRYPT:
 	    ComputeCrypt(apdu, buffer);
 	    break;
+
+        case INS_COMPUTE_ECC_SIGNATURE:
+            ComputeECCSignature(apdu, buffer);
+            break;
 
 	case INS_CREATE_PIN:
 	    CreatePIN(apdu, buffer);
