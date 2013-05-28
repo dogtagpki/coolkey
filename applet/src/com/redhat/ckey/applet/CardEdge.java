@@ -124,8 +124,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x516d;
-    private static final short BUILDID_MINOR = (short) 0x92ec;
+    private static final short BUILDID_MAJOR = (short) 0x519e;
+    private static final short BUILDID_MINOR = (short) 0x494f;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -462,6 +462,9 @@ public class CardEdge extends Applet
     };
     private static final short sha1encodeLen = 15;
 
+    private static final short minECCHashSize = 20;
+    private static final short maxECCHashSize = 48;
+
     /**
      * Instance variable primitive declarations  ALL PERSISTENT MEMORY
      */
@@ -514,6 +517,7 @@ public class CardEdge extends Applet
     private byte[]        nonce;              // transient
     private short[]       loginCount;         // transient
     private byte[]        digest;             // transient
+    private byte[]        ecc_hash_buf;       // transient
 
     private CardEdge(byte bArray[], short bOffset, byte bLength)
     {
@@ -545,7 +549,6 @@ public class CardEdge extends Applet
         default_nonce = new byte      [NONCE_SIZE];
         issuerInfo    = new byte      [ISSUER_INFO_SIZE];
 
-        digest = new byte [100];
         
         for (byte i = 0; i < MAX_NUM_KEYS; i++) {
             keyTries[i] = MAX_KEY_TRIES;
@@ -2532,13 +2535,29 @@ public class CardEdge extends Applet
     private short eccSignHash(byte key_nb, byte inbuf[], short inOffset,
                         short len, byte outbuf[], short outOffset, boolean debug)
     {
- 
+
+        // The highest sha we support is SHA_384, assume buffer for 384
+        // of 48 bytes and pad for lesser supported algs.
+
+        if ( len > maxECCHashSize || len < minECCHashSize ) {
+            ISOException.throwIt(SW_INCORRECT_ALG);
+        }
+
+
+        // Clear out our hash buffer.
+
+        Util.arrayFillNonAtomic(ecc_hash_buf, (short) 0, maxECCHashSize, (byte) 0); 
+
+        short diff = (short) ( maxECCHashSize - len);
+
+        Util.arrayCopyNonAtomic(inbuf, inOffset, ecc_hash_buf, diff,  len);
+
         SignatureSFNT eccSig = null;
 
         ECPrivateKeyImp ecPrivateKey = (ECPrivateKeyImp) keys[key_nb];
 
         try {
-            eccSig = SignatureSFNT.getInstance(SignatureSFNT.ALG_ECDSA_SHA, false); 
+            eccSig = SignatureSFNT.getInstance(SignatureSFNT.ALG_ECDSA_SHA_384, false); 
             eccSig.init(ecPrivateKey, SignatureSFNT.MODE_SIGN);
         } catch (CryptoException e) {
             ISOException.throwIt(e.getReason());
@@ -2547,9 +2566,9 @@ public class CardEdge extends Applet
         short sigLen = 0;
 
         try {
-            sigLen = eccSig.signHash(inbuf,
-                    inOffset,
-                    len,
+            sigLen = eccSig.signHash(ecc_hash_buf,
+                    (short) 0,
+                    maxECCHashSize,
                     outbuf,
                     outOffset);
 
@@ -3384,6 +3403,10 @@ public class CardEdge extends Applet
 		     JCSystem.CLEAR_ON_RESET);
 	cardResetProcessed = JCSystem.makeTransientBooleanArray((short)1,
 		    JCSystem.CLEAR_ON_RESET);
+
+        ecc_hash_buf = JCSystem.makeTransientByteArray( maxECCHashSize, JCSystem.CLEAR_ON_DESELECT);
+
+
 	transientInit = true;
     }
 
