@@ -116,15 +116,15 @@ import visa.openplatform.OPSystem;
 public class CardEdge extends Applet
 {
     private static final byte ZEROB = 0;
-    private static final byte MAX_NUM_KEYS = 8;
+    private static final byte MAX_NUM_KEYS = 24;
     private static final byte MAX_NUM_PINS = 8;
     
     private static final byte VERSION_PROTOCOL_MAJOR = 1;
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x4d38;
-    private static final short BUILDID_MINOR = (short) 0x7a3f;
+    private static final short BUILDID_MAJOR = (short) 0x5200;
+    private static final short BUILDID_MINOR = (short) 0x4404;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -1912,7 +1912,8 @@ public class CardEdge extends Applet
 	    // I/O Object
 	    base = 0;
 	    buf = iobuf;
-	    obj_size = iobuf_size;
+            iobuf_size = (short) ( size + offset);
+	    obj_size = iobuf_size; 
 	} else {
 	    base = om.getBaseAddress(obj_class, obj_id);
 	    buf = mem.getBuffer();
