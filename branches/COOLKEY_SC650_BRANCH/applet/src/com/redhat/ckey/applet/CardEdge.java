@@ -117,15 +117,15 @@ import safenet.security.*;
 public class CardEdge extends Applet
 {
     private static final byte ZEROB = 0;
-    private static final byte MAX_NUM_KEYS = 8;
+    private static final byte MAX_NUM_KEYS = 24;
     private static final byte MAX_NUM_PINS = 8;
     
     private static final byte VERSION_PROTOCOL_MAJOR = 1;
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x519e;
-    private static final short BUILDID_MINOR = (short) 0x494f;
+    private static final short BUILDID_MAJOR = (short) 0x5217;
+    private static final short BUILDID_MINOR = (short) 0x9ed7;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -463,7 +463,7 @@ public class CardEdge extends Applet
     private static final short sha1encodeLen = 15;
 
     private static final short minECCHashSize = 20;
-    private static final short maxECCHashSize = 48;
+    private static final short maxECCHashSize = 64;
 
     /**
      * Instance variable primitive declarations  ALL PERSISTENT MEMORY
@@ -1800,8 +1800,12 @@ public class CardEdge extends Applet
                 short keyLen = asn1.GetSize();
 
                 // Set the private key
-                prv_key.setS(buf, offset, keyLen);
 
+                try {
+                    prv_key.setS(buf, offset, keyLen);
+                } catch (CryptoException e) {
+                     ISOException.throwIt(e.getReason());
+                }
 
                 // Get our added on public key, added to apdu command.
 
@@ -1809,7 +1813,11 @@ public class CardEdge extends Applet
 
                 // Set the public key 
 
-                pub_key.setW(apdu_buffer,(short) ( eccPublicKeyBase + 1), publicKeyLen);
+                try {
+                    pub_key.setW(apdu_buffer,(short) ( eccPublicKeyBase + 1), publicKeyLen);
+                } catch (CryptoException e) {
+                     ISOException.throwIt(e.getReason());
+                }
 
                 break;
             }
@@ -2212,7 +2220,8 @@ public class CardEdge extends Applet
 	    // I/O Object
 	    base = 0;
 	    buf = iobuf;
-	    obj_size = iobuf_size;
+            iobuf_size = (short) ( size + offset);
+            obj_size = iobuf_size;
 	} else {
 	    base = om.getBaseAddress(obj_class, obj_id);
 	    buf = mem.getBuffer();
@@ -2538,26 +2547,43 @@ public class CardEdge extends Applet
 
         // The highest sha we support is SHA_384, assume buffer for 384
         // of 48 bytes and pad for lesser supported algs.
+        // For 256 bit key, assume 32 for buffer size.
 
-        if ( len > maxECCHashSize || len < minECCHashSize ) {
+        short maxHashSizeForAlg = 0;
+        ECPrivateKeyImp ecPrivateKey = (ECPrivateKeyImp) keys[key_nb];
+        short keySize = ecPrivateKey.getSize();
+
+        byte SigningAlg = 0;
+
+        if (keySize == 521) {
+            SigningAlg = SignatureSFNT.ALG_ECDSA_SHA_521;
+            maxHashSizeForAlg = 64;
+        } else if (keySize == 384) { 
+            SigningAlg = SignatureSFNT.ALG_ECDSA_SHA_384;
+            maxHashSizeForAlg = 48;
+        } else if (keySize == 256) {
+            SigningAlg = SignatureSFNT.ALG_ECDSA_SHA_256;
+            maxHashSizeForAlg = 32;
+        } else {
             ISOException.throwIt(SW_INCORRECT_ALG);
         }
 
+        if ( len > maxHashSizeForAlg || len < minECCHashSize ) {
+            ISOException.throwIt(SW_INCORRECT_ALG);
+        }
 
         // Clear out our hash buffer.
 
-        Util.arrayFillNonAtomic(ecc_hash_buf, (short) 0, maxECCHashSize, (byte) 0); 
+        Util.arrayFillNonAtomic(ecc_hash_buf, (short) 0,maxECCHashSize , (byte) 0); 
 
-        short diff = (short) ( maxECCHashSize - len);
+        short diff = (short) ( maxHashSizeForAlg - len);
 
         Util.arrayCopyNonAtomic(inbuf, inOffset, ecc_hash_buf, diff,  len);
 
         SignatureSFNT eccSig = null;
 
-        ECPrivateKeyImp ecPrivateKey = (ECPrivateKeyImp) keys[key_nb];
-
         try {
-            eccSig = SignatureSFNT.getInstance(SignatureSFNT.ALG_ECDSA_SHA_384, false); 
+            eccSig = SignatureSFNT.getInstance(SigningAlg, false);
             eccSig.init(ecPrivateKey, SignatureSFNT.MODE_SIGN);
         } catch (CryptoException e) {
             ISOException.throwIt(e.getReason());
@@ -2568,14 +2594,13 @@ public class CardEdge extends Applet
         try {
             sigLen = eccSig.signHash(ecc_hash_buf,
                     (short) 0,
-                    maxECCHashSize,
+                    maxHashSizeForAlg,
                     outbuf,
                     outOffset);
 
         } catch(CryptoException e) {
             ISOException.throwIt(e.getReason());
         }
-
         return sigLen;
     }
 
