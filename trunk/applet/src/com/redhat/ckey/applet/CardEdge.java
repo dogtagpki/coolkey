@@ -123,8 +123,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x5200;
-    private static final short BUILDID_MINOR = (short) 0x4404;
+    private static final short BUILDID_MAJOR = (short) 0x5261;
+    private static final short BUILDID_MINOR = (short) 0x7c4e;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -412,11 +412,11 @@ public class CardEdge extends Applet
     //     512 bytes for data
     //      40 bytes for two sha digest buffers.
     //private static final short IOBUF_ALLOC = 554;
-    private static final short IOBUF_ALLOC =  1200;
+    private static final short IOBUF_ALLOC =  900;
     // offsets in iobuf used by CryptProcessFinal()
-    private static final short VFY_OFF   = 558;
-    private static final short VFY_MD_0  = 1014;
-    private static final short VFY_MD_1  = 1034;
+    private static final short VFY_OFF   =  450;
+    private static final short VFY_MD_0  = 714;
+    private static final short VFY_MD_1  = 734;
 
     // how many ms to delay when a bad password is detected
     private static final short BAD_PASSWD_DELAY = 1000; 
