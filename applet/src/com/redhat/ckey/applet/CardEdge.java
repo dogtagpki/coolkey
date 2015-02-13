@@ -124,8 +124,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 4;
-    private static final short BUILDID_MAJOR = (short) 0x5217;
-    private static final short BUILDID_MINOR = (short) 0x9ed7;
+    private static final short BUILDID_MAJOR = (short) 0x54d2;
+    private static final short BUILDID_MINOR = (short) 0x86a2;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -216,6 +216,7 @@ public class CardEdge extends Applet
     private static final byte INS_GET_RANDOM      = (byte)0x72;
     private static final byte INS_SEED_RANDOM     = (byte)0x73;
     private static final byte INS_GET_BUILTIN_ACL = (byte)0xFA;
+    private static final byte INS_GET_PIN_REMAINING_TRIES = (byte)0x4A;  // ACC: Add ability to get PIN remaining tries.
 
     /* nonce validated only */
     private static final byte INS_LOGOUT	= (byte)0x61;
@@ -2181,9 +2182,12 @@ public class CardEdge extends Applet
 	if (numBytes != apdu.setIncomingAndReceive())
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 
-	// Attempt to turn off blocking, just use the verify timeout
-	//if (pin.getTriesRemaining() == 0)
-        //   ISOException.throwIt(SW_IDENTITY_BLOCKED);
+	// ACC: Revert code change that breaks SW_IDENTITY_BLOCKED message
+	//      The previous decision to remove the below "if" statement caused 
+	//      pin lockout to still occur, but prevented a unique message from
+	//      being returned under the condition that the pin was already locked.
+	if (pin.getTriesRemaining() == 0)
+	    ISOException.throwIt(SW_IDENTITY_BLOCKED);
 	
 	if (!CheckPINPolicy(buffer,ISO7816.OFFSET_CDATA,(byte)numBytes)
 	  || !pin.check(buffer, ISO7816.OFFSET_CDATA, (byte)numBytes))
@@ -2194,6 +2198,40 @@ public class CardEdge extends Applet
 	}
 	LoginIdentity(pin_nb);
 	sendData(apdu, nonce, ZEROS, NONCE_SIZE);
+    }
+
+    // ACC: Add ability to get PIN remaining tries.
+    private void getPINRemainingTries(APDU apdu, byte buffer[])
+    {
+        // P1 contains PIN id to use
+        byte pin_nb = buffer[ISO7816.OFFSET_P1];
+        
+        // check for invalid PIN id specified
+        if (pin_nb < 0 || pin_nb >= MAX_NUM_PINS)
+            ISOException.throwIt(SW_INCORRECT_P1);
+        
+        // get OwnerPIN object instance and check that instance exists
+        OwnerPIN pin = pins[pin_nb];
+        if (pin == null)
+            ISOException.throwIt(SW_INCORRECT_P1);
+        
+        // check that P2 == 0
+        if (buffer[ISO7816.OFFSET_P2] != 0)
+            ISOException.throwIt(SW_INCORRECT_P2);
+        
+        // check that Lc == 1
+        if (buffer[ISO7816.OFFSET_LC] != 1){
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        }
+        
+        // get tries remaining for this PIN
+        byte triesRemaining = pin.getTriesRemaining();
+        
+        // copy remaining tries to byte 0 of buffer (the only byte we will send back)
+        buffer[0] = triesRemaining;
+        
+        // send data
+        apdu.setOutgoingAndSend(ZEROS, (short)1);
     }
 
     private void WriteObject(APDU apdu, byte buffer[])
@@ -3536,6 +3574,10 @@ public class CardEdge extends Applet
 	    getBuiltInACL(apdu, buffer);
 	    break;
 
+	// ACC: Add ability to get PIN remaining tries.
+	case INS_GET_PIN_REMAINING_TRIES:
+	    getPINRemainingTries(apdu, buffer);
+	    break;
 
 	case INS_NOP:
 	    break;
