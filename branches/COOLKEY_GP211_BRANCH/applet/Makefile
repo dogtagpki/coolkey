@@ -44,80 +44,52 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 # END LICENSE BLOCK
 
-CORE_DEPTH = ..
-
-#############################################################################
-# Locations of toolkits.
-#
 
 #
-# The Javacard kit, version 2.2. Version 2.1 should also work.
-# 
-# The following need to be set in environment variables or in custom.mk.
-# Examples :
+#Substantial modifications to this Makefile were made by Aaron Curley.
+#The modifications are licensed under the same provisions listed above.
 #
-#JAVACARD_KIT_DIR=c:/hack/java_card_kit-2_2
 
-
-#
-# The JDK. You need to use version 1.3.x; other versions aren't supported
-# by the converter classes.
-#
-#JAVA_HOME=/cygdrive/c/jdk1.3.1_07/
-
-#
-# The top-level directory of Schlumberger's Cyberflex SDK.
-#
-#SLB_DIR=c:\Program Files\Schlumberger
-
-#
-# The top-level of the open platform toolkey
-#
-#OPEN_PLATFORM_DIR=C:/open_platform
-
--include custom.mk
-
-ifdef SLB_DIR
-# sub directory of Schlumberger's Cyberflex SDK.
-SLB_JAVA_DIR=$(SLB_DIR)/Smart Cards and Terminals/Cyberflex Access Kits/v4/
-endif
-
-ifdef windir
-SEP="\;"
-else
-SEP=":"
-endif
 
 #############################################################################
 # Build Constants
+#############################################################################
 
-#
 # The Applet Identification Number.
-#
 AID=0x62:0x76:0x01:0xFF:0x00:0x00:0x00
 
-#
 # The Package Identification Number.
-#
 PID=0x62:0x76:0x01:0xFF:0x00:0x00
 
-#
 # The Java package to which the applet belongs.
-#
 PACKAGE=com.redhat.ckey.applet
 
-#
 # The unqualified name of the applet class.
-#
 APPLET_CLASS_NAME=CardEdge
 
-#
+# The version of the package
+MAJOR_VERSION=2
+MINOR_VERSION=0
+
 # The directory into which output will be generated.
-#
 OUTPUT_DIR=output
+
+# Extra flags for the java compiler
+JAVAC_FLAGS=-g -source 1.2 -target 1.2
+
+# Extra flags for the class-to-CAP converter 
+CONVERTER_FLAGS=-verbose
+
+# Extra flags for CAP verifier
+VERIFIER_FLAGS=-verbose
+
+#############################################################################
+
+
 
 #############################################################################
 # Generated build variables.
+#############################################################################
 
 PACKAGE_DIR=$(subst .,/,$(PACKAGE))
 
@@ -127,97 +99,83 @@ APPLET_QUALIFIED_CLASS_NAME=$(PACKAGE).$(APPLET_CLASS_NAME)
 
 CONVERTER_OUTPUT_DIR=$(OUTPUT_DIR)/$(PACKAGE_DIR)/javacard
 
-JAVAC=$(JAVA_HOME)/bin/javac
-JAVA=$(JAVA_HOME)/bin/java
+JAVAC="$(JAVA_HOME)/bin/javac"
+JAVA="$(JAVA_HOME)/bin/java"
 
 JAVA_SRC_FILENAMES=$(notdir $(JAVA_SRC_FILES))
 JAVA_CLASS_FILES=$(patsubst %.java,$(OUTPUT_DIR)/$(PACKAGE_DIR)/%.class, $(JAVA_SRC_FILENAMES))
 
+#############################################################################
+
+
 
 #############################################################################
-# The ultimate output of the build is applet.ijc. This file is ready to
-# be loaded onto a token.
-all: $(CONVERTER_OUTPUT_DIR)/applet.ijc
+# The ultimate output of the build is applet.cap
+#############################################################################
 
-clobber: clean
+all: check-env $(CONVERTER_OUTPUT_DIR)/applet.cap verifycapfile
+
+check-env:
+ifndef JAVA_HOME
+	$(error JAVA_HOME is undefined)
+endif
+ifndef JC_HOME
+	$(error JC_HOME is undefined)
+endif
+ifndef GP_HOME
+	$(error GP_HOME is undefined)
+endif
 
 clean:
-	touch $(JAVA_SRC_FILES)
-
+	rm -rf $(OUTPUT_DIR)
+	rm -rf .libs
 
 #############################################################################
-# The first step in the build is to compile the Java source files (*.java)
-# into class files (*.class). These class files are regular Java class files;
-# they aren't specially formatted for Javacard yet.
 
-#
-# The classpath needed to compile the Java source code.
-#
-BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/api.jar$(SEP)$(OPEN_PLATFORM_DIR)/jc211/bin/visaop20.jar"
 
-#BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar"
-#
+
+############################################################################
+# Rule to build .class files from .java source
+#############################################################################
+
+BUILD_CLASSPATH="${JC_HOME}/lib/api.jar:${GP_HOME}"
+
 # build rule
-#
 $(JAVA_CLASS_FILES): $(JAVA_SRC_FILES)
 	mkdir -p $(CONVERTER_OUTPUT_DIR)
 	perl ./update_buildid.pl $(JAVA_SRC_FILES)
-	$(JAVAC) -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES)
+	$(JAVAC) $(JAVAC_FLAGS) -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES)
+
+#############################################################################
+
 
 
 #############################################################################
-# The next step is to convert the regular Java class files into the Javacard
-# format, using the converter program included with the Javacard Kit.
-# The output from the converter is applet.cap, but the next step expects
-# applet.jar, so we rename it.
+# Convert to .cap file from .class files
+#############################################################################
 
-
-#
-# Classpath for the converter.
-#
-CONVERT_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/converter.jar$(SEP)$(JAVACARD_KIT_DIR)/lib/offcardverifier.jar$(SEP)$(SLB_JAVA_DIR)/Classlibrary/jc_api_212.jar"
-
-#
 # Location of the .exp files, used for "linking" Javacard code.
-#
-EXPORT_PATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/Export Files"
+EXPORT_PATH="$(JC_HOME)/api_export_files:$(GP_HOME)"
 
-#
+# UTPUT_DIR)
 # build rule
-#
-$(CONVERTER_OUTPUT_DIR)/applet.jar: $(JAVA_CLASS_FILES)
-	@if [ "$(JAVACARD_KIT_DIR)" = "" -o "$(JAVA_HOME)" = "" -o "$(SLB_JAVA_DIR)" = "" -o "$(OPEN_PLATFORM_DIR)" = "" ]; then \
-	    echo "Not all necessary variables have been set."; \
-	    echo "JAVACARD_KIT_DIR=$(JAVA_CARD_KIT_DIR)"; \
-	    echo "JAVA_HOME=$(JAVA_HOME)"; \
-	    echo "SLB_JAVA_DIR=$(SLB_JAVA_DIR)"; \
-	    echo "OPEN_PLATFORM_DIR=$(OPEN_PLATFORM_DIR)"; \
-	    exit 1; \
-	fi 
-	$(JAVA) -classpath ${CONVERT_CLASSPATH} com.sun.javacard.converter.Converter -classdir $(OUTPUT_DIR) -out EXP JCA CAP -exportpath $(EXPORT_PATH) -applet $(AID) $(APPLET_QUALIFIED_CLASS_NAME) -d $(OUTPUT_DIR) $(PACKAGE) $(PID) 1.0 
-	mv $(CONVERTER_OUTPUT_DIR)/applet.cap $@ 
-
-
-###############################################################################
-# Finally, we must prepare the applet.jar file to be loaded onto a Schlumberger
-# token. This means preparing it to be verified by the on-card verifier, using
-# TrustedLogic's "CodeShield" technology. The Schlumberger SDK provides
-# a 'makeijc' program to do this. The output is applet.ijc, which is ready to
-# be loaded onto a token.
-
-#
-# Classpath for the IJC converter.
-#
-IJC_CLASSPATH="$(SLB_JAVA_DIR)/Toolkit/PRGMaker/makeijc.jar"
-
-#
-# build rule
-#
-$(CONVERTER_OUTPUT_DIR)/applet.ijc: $(CONVERTER_OUTPUT_DIR)/applet.jar
-	$(JAVA) -classpath $(IJC_CLASSPATH) com.slb.javacard.jctools.ijc.MakeIJC -verbose -expFileDir $(EXPORT_PATH) -type onCardVerifier $(CONVERTER_OUTPUT_DIR)/applet.jar
+$(CONVERTER_OUTPUT_DIR)/applet.cap: $(JAVA_CLASS_FILES)
+	"$(JC_HOME)/bin/converter" $(CONVERTER_FLAGS) -classdir $(OUTPUT_DIR) -out EXP JCA CAP -exportpath $(EXPORT_PATH) -applet $(AID) $(APPLET_QUALIFIED_CLASS_NAME) -d $(OUTPUT_DIR) $(PACKAGE) $(PID) $(MAJOR_VERSION).$(MINOR_VERSION) 
 	-@mkdir -p .libs
-	cp $@ .libs/CardEdge.$(shell cat .buildid).ijc
+	unzip -j -d $(OUTPUT_DIR)  $(CONVERTER_OUTPUT_DIR)/applet.cap	
+	cat  $(OUTPUT_DIR)/Header.cap  $(OUTPUT_DIR)/Directory.cap  $(OUTPUT_DIR)/Import.cap  $(OUTPUT_DIR)/Applet.cap  $(OUTPUT_DIR)/Class.cap $(OUTPUT_DIR)/Method.cap  $(OUTPUT_DIR)/StaticField.cap  $(OUTPUT_DIR)/ConstantPool.cap  $(OUTPUT_DIR)/RefLocation.cap  $(OUTPUT_DIR)/Descriptor.cap > .libs/CardEdge.ijc
+	mv .libs/CardEdge.ijc .libs/CardEdge.$(shell cat .buildid).ijc
 
-export:
 
-libs: all
+#############################################################################
+
+
+
+#############################################################################
+# Verify CAP file
+#############################################################################
+
+verifycapfile:
+	"$(JC_HOME)/bin/verifycap" $(VERIFIER_FLAGS) -package $(PACKAGE) "$(GP_HOME)/org/globalplatform/javacard/globalplatform.exp" "$(JC_HOME)/api_export_files/java/lang/javacard/lang.exp" "$(JC_HOME)/api_export_files/javacard/framework/javacard/framework.exp" "$(JC_HOME)/api_export_files/javacard/security/javacard/security.exp" "$(JC_HOME)/api_export_files/javacardx/crypto/javacard/crypto.exp" $(CONVERTER_OUTPUT_DIR)/applet.cap 
+
+#############################################################################

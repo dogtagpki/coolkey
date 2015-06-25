@@ -65,8 +65,9 @@ import javacard.framework.*;
 import javacard.security.*;
 import javacardx.crypto.Cipher;
 
-import visa.openplatform.ProviderSecurityDomain;
-import visa.openplatform.OPSystem;
+// AC: GP211 Change - Import from newer namespace.
+import org.globalplatform.GPSystem;
+import org.globalplatform.SecureChannel;
 
 // Referenced classes of package com.redhat.ckey.applet:
 //	    MemoryManager, ObjectManager, ASN1
@@ -122,10 +123,9 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MAJOR = 1;
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
-    private static final byte VERSION_APPLET_MINOR = 4;
-
-    private static final short BUILDID_MAJOR = (short) 0x54d2;
-    private static final short BUILDID_MINOR = (short) 0x852b;
+    private static final byte VERSION_APPLET_MINOR = 5;
+    private static final short BUILDID_MAJOR = (short) 0x558c;
+    private static final short BUILDID_MINOR = (short) 0x8ddb;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -216,7 +216,8 @@ public class CardEdge extends Applet
     private static final byte INS_GET_RANDOM      = (byte)0x72;
     private static final byte INS_SEED_RANDOM     = (byte)0x73;
     private static final byte INS_GET_BUILTIN_ACL = (byte)0xFA;
-    private static final byte INS_GET_PIN_REMAINING_TRIES = (byte)0x4A;  // ACC: Add ability to get PIN remaining tries.
+    // ACC: Add ability to get PIN remaining tries.
+    private static final byte INS_GET_PIN_REMAINING_TRIES = (byte)0x4A;
 
     /* nonce validated only */
     private static final byte INS_LOGOUT	= (byte)0x61;
@@ -242,7 +243,10 @@ public class CardEdge extends Applet
     private static final byte INS_SEC_READ_IOBUF            = (byte)0x08;
     private static final byte INS_SEC_IMPORT_KEY_ENCRYPTED  = (byte)0x0A;
     private static final byte INS_SEC_START_ENROLLMENT      = (byte)0x0C;
-
+    
+    /* AC: SCP02 and SCP03 secure channel commands */
+    private static final byte INS_SEC_BEGIN_RMAC            = (byte)0x7A;
+    private static final byte INS_SEC_END_RMAC              = (byte)0x78;
 
     // * There have been memory problems on the card
     private static final short SW_NO_MEMORY_LEFT	= (short)0x9C01;
@@ -460,14 +464,20 @@ public class CardEdge extends Applet
     private MessageDigest shaDigest;
     private boolean       transientInit;
     private RandomData    randomGenerator;
-    private Cipher	  des;
     private ASN1	  asn1;
     /* these values candidates for Transient objects */
     private short         authenticated_id; /* high */
     private short         nonce_ids;        /* high */
     private short         iobuf_size;       /* medium */
     private byte          key_it;           /* low */
-    private byte          channelID;        /* low */
+    //private byte          channelID;        /* low */
+    
+    // AC: Bugfix & new GP 2.1.1 code - Need a 2-key 3DES Key object for SecureImportKeyEncrypted
+    private DESKey m_2key3desKey = null;
+    
+    // AC: Bugfix & new GP 2.1.1 code
+    private Cipher m_desCipher_cbc;     // rename "des" to "desCipher_cbc"
+    private Cipher m_desCipher_ecb;     // new cipher object for ECB
 
     /**
      * Instance variable objects and array declarations - PERSISTENT
@@ -536,6 +546,13 @@ public class CardEdge extends Applet
 
         Util.arrayFillNonAtomic(default_nonce, ZEROS, NONCE_SIZE, ZEROB);
         Util.arrayFillNonAtomic(issuerInfo, ZEROS,ISSUER_INFO_SIZE, ZEROB);
+
+        // AC: Bugfix & new GP 2.1.1 code - Need a 2-key 3DES Key object for SecureImportKeyEncrypted
+        m_2key3desKey = (DESKey) KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
+
+        // AC: Bugfix & new GP 2.1.1 code - Should initialize Cipher objects inside constructor; need additional Cipher object for ECB (used for KCV)
+        m_desCipher_cbc = Cipher.getInstance(Cipher.ALG_DES_CBC_NOPAD, false);
+        m_desCipher_ecb = Cipher.getInstance(Cipher.ALG_DES_ECB_NOPAD, false);
 
         byte appDataLen = 0;
         byte issuerLen = 0;
@@ -720,7 +737,9 @@ public class CardEdge extends Applet
 
 	randomGenerator = null;
 	shaDigest = null;
-	des = null;
+
+	// AC: Bugfix:  We'll initialize the DES cipher object in the constructor to prevent out of memory scenarios.
+	//des = null;
 
 	transientInit = false;
 
@@ -1875,12 +1894,13 @@ public class CardEdge extends Applet
 	if (numBytes != apdu.setIncomingAndReceive())
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 
-	// ACC: Revert code change that breaks SW_IDENTITY_BLOCKED message
-	//      The previous decision to remove the below "if" statement caused 
-	//      pin lockout to still occur, but prevented a unique message from
-	//      being returned under the condition that the pin was already locked.
-	if (pin.getTriesRemaining() == 0)
-	    ISOException.throwIt(SW_IDENTITY_BLOCKED);
+        // ACC: Revert code change that breaks SW_IDENTITY_BLOCKED message
+        // The previous decision to remove the below "if" statement caused 
+        // pin lockout to still occur, but prevented a unique message from
+        //  being returned under the condition that the pin was already locked.
+        
+        if (pin.getTriesRemaining() == 0)
+            ISOException.throwIt(SW_IDENTITY_BLOCKED);
 	
 	if (!CheckPINPolicy(buffer,ISO7816.OFFSET_CDATA,(byte)numBytes)
 	  || !pin.check(buffer, ISO7816.OFFSET_CDATA, (byte)numBytes))
@@ -1893,36 +1913,35 @@ public class CardEdge extends Applet
 	sendData(apdu, nonce, ZEROS, NONCE_SIZE);
     }
 
-    // ACC: Add ability to get PIN remaining tries.
     private void getPINRemainingTries(APDU apdu, byte buffer[])
     {
         // P1 contains PIN id to use
         byte pin_nb = buffer[ISO7816.OFFSET_P1];
-        
+
         // check for invalid PIN id specified
         if (pin_nb < 0 || pin_nb >= MAX_NUM_PINS)
             ISOException.throwIt(SW_INCORRECT_P1);
-        
+
         // get OwnerPIN object instance and check that instance exists
         OwnerPIN pin = pins[pin_nb];
         if (pin == null)
             ISOException.throwIt(SW_INCORRECT_P1);
-        
+
         // check that P2 == 0
         if (buffer[ISO7816.OFFSET_P2] != 0)
             ISOException.throwIt(SW_INCORRECT_P2);
-        
+
         // check that Lc == 1
         if (buffer[ISO7816.OFFSET_LC] != 1){
             ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
         }
-        
+
         // get tries remaining for this PIN
         byte triesRemaining = pin.getTriesRemaining();
-        
+
         // copy remaining tries to byte 0 of buffer (the only byte we will send back)
         buffer[0] = triesRemaining;
-        
+
         // send data
         apdu.setOutgoingAndSend(ZEROS, (short)1);
     }
@@ -1996,23 +2015,89 @@ public class CardEdge extends Applet
 	if( ins != INS_INIT_UPDATE ) {
 	    ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
 	}
-	apdu.setIncomingAndReceive();
+	
+	// AC: Don't call apdu.set<anything> prior to calling SecureChannel::ProcessSecurity()
+	//     See https://community.oracle.com/thread/1751589
+	// apdu.setIncomingAndReceive();
 
-	ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
-	channelID = domain.openSecureChannel(apdu);
+	// AC: Process the INITIALIZE-UPDATE command in the GP system
+	//     Note that we haven't taken the approach of processing ALL unknown APDUs as specified in the SecureChannel javadoc.
+	//       This is because we prefer to comply with the Coolkey specification document which states that we only process
+	//       the INITIALIZE-UPDATE and EXTERNAL-AUTHENTICATE GP commands.
+	// Future work:  Consider amending the Coolkey specification and moving this to process()?
+	short len = 0;
+	try{
+		SecureChannel sc = GPSystem.getSecureChannel();
+		len = sc.processSecurity(apdu);
+	}catch(ISOException e){
+		if ((e.getReason() == ISO7816.SW_CLA_NOT_SUPPORTED) || (e.getReason() == ISO7816.SW_INS_NOT_SUPPORTED)){
+			// this should never occur because processSecurity should know how to handle the INITIALIZE-UPDATE command
+			ISOException.throwIt(ISO7816.SW_UNKNOWN);
+		}else{
+			throw e;
+		}
+	}
 
-	short len = (short)(buffer[ISO7816.OFFSET_LC]&0xff);
+	// AC: Remove old OP code
+	//ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
+	//channelID = domain.openSecureChannel(apdu);
+	//
+	//short len = (short)(buffer[ISO7816.OFFSET_LC]&0xff);
+	
 	apdu.setOutgoing();
 	apdu.setOutgoingLength(len);
-	apdu.sendBytes(ISO7816.OFFSET_CDATA, len);
+	
+	// AC: don't send if len == 0 
+	if (len > 0){
+		apdu.sendBytes(ISO7816.OFFSET_CDATA, len);
+	}
     }
 
     private void externalAuthenticate(APDU apdu, byte[] buffer) 
     {
-	apdu.setIncomingAndReceive();
-	ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
-	domain.verifyExternalAuthenticate(channelID, apdu);
-
+	// AC: Don't call apdu.set<anything> prior to calling SecureChannel::ProcessSecurity()
+	//     See https://community.oracle.com/thread/1751589
+	//apdu.setIncomingAndReceive();
+	
+	// AC: Process the EXTERNAL-AUTHENTICATE command in the GP system
+	//     Note that we haven't taken the approach of processing ALL unknown APDUs as specified in the SecureChannel javadoc.
+	//       This is because we prefer to comply with the Coolkey specification document which states that we only process
+	//       the INITIALIZE-UPDATE and EXTERNAL-AUTHENTICATE GP commands.
+	// Future work:  Consider amending the Coolkey specification and moving this to process()?
+	short len = 0;
+	SecureChannel sc = null;
+	try{
+		sc = GPSystem.getSecureChannel();
+		len = sc.processSecurity(apdu);
+	}catch(ISOException e){
+		if ((e.getReason() == ISO7816.SW_CLA_NOT_SUPPORTED) || (e.getReason() == ISO7816.SW_INS_NOT_SUPPORTED)){
+			// this should never occur because processSecurity should know how to handle the EXTERNAL-AUTHENTICATE command
+			ISOException.throwIt(ISO7816.SW_UNKNOWN);
+		}else{
+			throw e;
+		}
+	}
+	
+	// AC: Remove old OP code
+	//ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
+	//domain.verifyExternalAuthenticate(channelID, apdu);
+	
+	// AC: Check resulting secure channel state
+	byte securityLevel = sc.getSecurityLevel();
+	if ((securityLevel & SecureChannel.AUTHENTICATED) == 0){
+		// authentication has not occurred
+		ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+	}
+	
+	// AC: send any resulting data in compliance with the spec (will probably be 0 for EXT-AUTH)
+	apdu.setOutgoing();
+	apdu.setOutgoingLength(len);
+	if (len > 0){
+		apdu.sendBytes(ISO7816.OFFSET_CDATA, len);
+	}
+	
+	/* AC: No longer need the APDU-buffer checking code below 
+         *
 	// According to the Global Platform programming guidelines,
 	// we might need to verify the security level ourselves.
 	// Secrity level 0: No secure messaging
@@ -2035,13 +2120,53 @@ public class CardEdge extends Applet
 	if (( buffer[ISO7816.OFFSET_P1] != (byte) 0x01 ) &&
 		( buffer[ISO7816.OFFSET_P1] != (byte) 0x03 )) {
 	    ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+	}*/
+    }
+    
+    // AC: Method for processing miscellaneous secure channel APDUs (such as BEGIN R-MAC and END R-MAC)
+    private void processMiscSecureChannelApdu(APDU apdu, byte[] buffer) 
+    {
+	// AC: Process the miscellaneous secure-channel APDU command in the GP system
+	short len = 0;
+	SecureChannel sc = GPSystem.getSecureChannel();
+	len = sc.processSecurity(apdu);
+	
+	// AC: send any resulting data in compliance with the spec
+	apdu.setOutgoing();
+	apdu.setOutgoingLength(len);
+	if (len > 0){
+		apdu.sendBytes(ISO7816.OFFSET_CDATA, len);
 	}
     }
 
     private void verifySecureChannel(APDU apdu, byte[] buffer) {
-	apdu.setIncomingAndReceive();
-	ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
-	domain.unwrap(channelID, apdu);
+	// AC: Retrieve length of received buffer
+	short len = apdu.setIncomingAndReceive();
+	
+	// AC: Get Secure channel
+	SecureChannel sc = GPSystem.getSecureChannel();
+	
+	// AC: Check secure channel state - must be authenticated with at least CMAC
+	byte securityLevel = sc.getSecurityLevel();
+	if (((securityLevel & SecureChannel.AUTHENTICATED) == 0) || ((securityLevel & SecureChannel.C_MAC) == 0)){
+		// authentication has not occurred
+		ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
+	}
+
+	// AC: Unwrap the APDU buffer
+	sc.unwrap(buffer, (short)0, (short)(len + ISO7816.OFFSET_CDATA));
+
+	// AC: Check secure channel state (again - after unwrap)
+	securityLevel = sc.getSecurityLevel();
+	if (((securityLevel & SecureChannel.AUTHENTICATED) == 0) || ((securityLevel & SecureChannel.C_MAC) == 0)){
+		// authentication is no longer valid after unwrap
+		ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
+	}
+
+	// AC: Remove OP code
+	//ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
+	//domain.unwrap(channelID, apdu);
+	
 	AuthenticateIdentity(RA_IDENTITY);
     }
 
@@ -2161,14 +2286,63 @@ public class CardEdge extends Applet
 	if( buffer[ISO7816.OFFSET_LC] != (byte) 23 ) {
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 	}
+	
+	
+	
+	//DATA	KeyGenParams
+	//KeyGenParams:  --expected size = 23 = 1 + 2 + 1 + 19
+	//	Byte	Algorithm Type (0x03 RSA Private CRT)
+	//	Short	Key Size (in bits)
+	//	Byte	Options (set if options are provided in the temporary buffer)
+	//	WrappedKey	MacKey
+	//
+	//WrappedKey:  --expected size = 19 = 1 + 1 + 16 + 1 + 0 
+	//	Byte     Key Type - Mac (0x85)
+	//	Byte	   Key Size - key size in bytes
+	//	Byte[]   Key Data - encrypted and padded to the correct 3DES block boundary
+	//	Byte     Key Check Size
+	//	Byte[]   Key Check Data
 
-	ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
-	boolean verified = false;
-	verified = domain.decryptVerifyKey(channelID, apdu, (short) 9);
-	if (!verified) {
-	    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+	// AC: New GP code to decrypt and verify the MAC key
+	short wrappedKeyFieldOffset = (short)(ISO7816.OFFSET_CDATA + 4);
+
+	// AC: Check the key type is as we expect
+	// JM:  Bug Fix: This offset was wrong, adjusting
+	byte macKeyType = buffer[(short)(ISO7816.OFFSET_CDATA)];
+
+	if (macKeyType != (byte)(0x80)){
+		ISOException.throwIt(wrappedKeyFieldOffset);
 	}
-
+	
+	// AC: Check that the key size is valid (i.e. enough data exists in the buffer)
+	short macKeySize = (short)(buffer[(short)(wrappedKeyFieldOffset + 1)] & 0x00FF);
+	if (macKeySize != (byte)(0x10)){
+		ISOException.throwIt(SW_KEY_SIZE_ERROR);
+	}
+	
+	// AC: Check that key check size is valid (must be zero due to silly length == 23 check above)
+	short macKeyCheckSize = (short)(buffer[(short)(wrappedKeyFieldOffset + 2 + 0x10)] & 0x00FF);
+	if (macKeyCheckSize != (byte)(0)){ 
+		ISOException.throwIt(SW_UNSUPPORTED_FEATURE);
+	}
+	
+	// AC: decrypt key data and verify that its length is still 16
+	SecureChannel sc = GPSystem.getSecureChannel();
+	short decryptedMacKeySize = sc.decryptData(buffer,(short)(wrappedKeyFieldOffset + 2), macKeySize);
+	if (decryptedMacKeySize != (byte)(0x10)){
+		ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+	}
+	
+	// AC: Remove old OP code
+	//ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
+	//boolean verified = false;
+	//verified = domain.decryptVerifyKey(channelID, apdu, (short) 9);
+	//if (!verified) {
+	//    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+	//}
+	
+	
+	
 	GenerateKeyPairRSA(apdu, buffer, prv_key_nb, pub_key_nb, acl);
 
 	// copy public key to output object
@@ -2179,7 +2353,7 @@ public class CardEdge extends Applet
 
 	// Compute digest over public key and decrypted challenge.
 	// Write the digest into the iobuf.
-	Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,
+	Util.arrayCopyNonAtomic(buffer, (short)11, iobuf,                // AC: 11 is start of decrypted MAC key data sent with command
 				(short)(2 + pubkeysize), (short)16);
 	doDigest(iobuf, (short)2, (short)(16+pubkeysize),
 		 iobuf, (short)(2+pubkeysize+modsize) );
@@ -2329,6 +2503,19 @@ public class CardEdge extends Applet
 		!authorizeKeyWrite(pub_key_nb))
 	    ISOException.throwIt(SW_UNAUTHORIZED);
 
+	//DATA:
+	//	Long    ObjectID
+	//	WrappedKey	DesKey
+	//	Byte    IV_Length
+	//	Byte[]  IV_Data
+	//
+	//	WrappedKey:
+	//		Byte    Key Type - DES3 ()
+	//		Byte    Key Size - key size in bytes
+	//		Byte[]  Key Data - encrypted and padded to the correct 3DES block boundary
+	//		Byte    Key Check Size
+	//		Byte[]  Key Check Data
+	
 	short available = Util.makeShort(ZEROB, buffer[ISO7816.OFFSET_LC]);
 
 	if ( available <= WRAPKEY_OFFSET_DATA ) {
@@ -2369,16 +2556,51 @@ public class CardEdge extends Applet
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH); // wrong error code
 	}
 	ivOffset += ISO7816.OFFSET_CDATA;
-
-	ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
-
-	boolean verified = false;
-	verified = domain.decryptVerifyKey(channelID, apdu, 
-				(short)(ISO7816.OFFSET_CDATA+4));
-	if (!verified) {
-	    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+	
+	
+	
+	// AC: decrypt key data and verify that its length is still 16
+	SecureChannel sc = GPSystem.getSecureChannel();
+	short decryptedWrappedKeySize = sc.decryptData(buffer, (short)(ISO7816.OFFSET_CDATA + WRAPKEY_OFFSET_DATA), desLength);
+	if (decryptedWrappedKeySize != desLength){
+		ISOException.throwIt(SW_BAD_WRAPPED_KEY);
 	}
-
+	
+	// AC: If a KCV length of 3, need to manually compute key check and compare to supplied KCV
+	if (checkLength == (short)(3)){
+		// AC: copy key data to temporary Key object for WrappedKey
+		m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+		
+		// AC: Set first 8 bytes of IO buffer to 0s (we will run this through our cipher)
+		Util.arrayFillNonAtomic(iobuf, (short)0, (short)8, ZEROB);
+		
+		// AC: Initialize WrappedKey for encryption
+		m_desCipher_ecb.init(m_2key3desKey, Cipher.MODE_ENCRYPT);
+		
+		// AC: Compute key check value by encrypting 8 bytes of 0s with the DES key
+		m_desCipher_ecb.doFinal(iobuf,(short)0, (short)8, iobuf, (short)8);
+				
+		// AC: Verify KCV is the same as the computed value
+		if (Util.arrayCompare(iobuf, (short)8, buffer, (short)(ISO7816.OFFSET_CDATA+checkOffset+1), (short)3) != 0){
+			ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+		}
+	// AC: Can't support anything but a KCV length of 3 or 0
+	}else if(checkLength != (short)(0)){
+		ISOException.throwIt(SW_UNSUPPORTED_FEATURE);
+	}
+		
+	// AC: Remove old OP code
+	//ProviderSecurityDomain domain = OPSystem.getSecurityDomain();
+	//
+	//boolean verified = false;
+	//verified = domain.decryptVerifyKey(channelID, apdu, 
+	//			(short)(ISO7816.OFFSET_CDATA+4));
+	//if (!verified) {
+	//    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+	//}
+	
+	
+	
 	if( obj_class == (short)0xffff && 
 		(obj_id == (short)0xffff || obj_id == (short)0xfffe ) ) {
 	    // I/O Object
@@ -2405,21 +2627,22 @@ public class CardEdge extends Applet
 
 	// get the des key to decrypt the private key
         if (keybuf[base] == 0x01) { // BLOB_ENC_ENCRYPTED
-	  DESKey des3 = (DESKey) KeyBuilder.buildKey(
-		KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
-	  des3.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
-
-	  if (des == null) {
-	    des = Cipher.getInstance(Cipher.ALG_DES_CBC_NOPAD, false);
-	    //ISOException.throwIt((short)2);
-  	  }
-
-	  // decrypt the private key
-	  des.init(des3, Cipher.MODE_DECRYPT, buffer, 
-					(short)(ivOffset+1), ivLength);
-	  des.doFinal(keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA),
-			(short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA),
-			keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA));
+        	// AC: Bugfix: Don't create temporary key object (memory leak); instead use class member
+        	//DESKey des3 = (DESKey) KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
+        	//des3.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+        	m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+        	
+        	// AC: Bugfix: We always initialize our cipher object in the constructor to ensure we don't run out of memory at runtime
+        	// if (des == null) {
+        	// 	des = Cipher.getInstance(Cipher.ALG_DES_CBC_NOPAD, false);
+        	// }
+        	
+        	// AC: Renamed member cipher object and using renamed 3des key object.
+        	// decrypt the private key
+        	m_desCipher_cbc.init(m_2key3desKey, Cipher.MODE_DECRYPT, buffer, (short)(ivOffset+1), ivLength);
+        	m_desCipher_cbc.doFinal(keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA),
+        				(short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA),
+        				keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA));
         } else if (iobuf[0] != 0x00) {
 	    ISOException.throwIt(SW_INVALID_PARAMETER);
         }
@@ -2506,7 +2729,13 @@ public class CardEdge extends Applet
 
     private void getLifeCycle(APDU apdu, byte[] buffer) {
 	byte lc = buffer[ISO7816.OFFSET_LC];
-	buffer[0] = OPSystem.getCardContentState();
+	
+	// AC: New GP code
+	buffer[0] = GPSystem.getCardContentState();
+	
+	// AC: Remove OP code
+	//buffer[0] = OPSystem.getCardContentState();
+	
 	if (lc == 1) {
 	    // compatibility
 	    apdu.setOutgoingAndSend(ZEROS, (short)1);
@@ -2523,8 +2752,12 @@ public class CardEdge extends Applet
 	if( lc != 0 )
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 
-	boolean result =
-	    OPSystem.setCardContentState(buffer[ISO7816.OFFSET_P1]);
+	// AC: New GP code
+	boolean result = GPSystem.setCardContentState(buffer[ISO7816.OFFSET_P1]);
+
+	// AC: Remove OP code
+	//boolean result =
+	//    OPSystem.setCardContentState(buffer[ISO7816.OFFSET_P1]);
 
 	if( result == false )
 	    ISOException.throwIt(SW_INVALID_PARAMETER);
@@ -2816,6 +3049,10 @@ public class CardEdge extends Applet
 
     private void processCardReset() {
 	LogoutAll();
+	
+	// AC: Reset security of GP sessions
+	GPSystem.getSecureChannel().resetSecurity();
+	
 	// This flag is CLEAR_ON_RESET, so it will be set to false when
 	// the card is reset or removed.
 	cardResetProcessed[0] = true;
@@ -2952,10 +3189,10 @@ public class CardEdge extends Applet
 	    getBuiltInACL(apdu, buffer);
 	    break;
 
-	// ACC: Add ability to get PIN remaining tries.
-	case INS_GET_PIN_REMAINING_TRIES:
-	    getPINRemainingTries(apdu, buffer);
-	    break;
+        // ACC: Add ability to get PIN remaining tries.
+        case INS_GET_PIN_REMAINING_TRIES:
+            getPINRemainingTries(apdu, buffer);
+            break;
 
 	case INS_NOP:
 	    break;
@@ -2989,6 +3226,11 @@ public class CardEdge extends Applet
 	    externalAuthenticate(apdu, buffer);
 	    break;
 
+	case INS_SEC_END_RMAC:  /* fall through */
+	case INS_SEC_BEGIN_RMAC:
+	    processMiscSecureChannelApdu(apdu, buffer);
+	    break;
+	
 	case INS_SEC_SET_PIN:
 	    resetPIN(apdu, buffer);
 	    break;
@@ -3088,6 +3330,11 @@ public class CardEdge extends Applet
 	    ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
 	}
     
+    }
+    
+    // AC: Per GP API spec, need to call resetSecurity() in deselect().
+    public void deselect(){
+	GPSystem.getSecureChannel().resetSecurity();
     }
 }
 
