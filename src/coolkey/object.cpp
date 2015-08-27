@@ -28,6 +28,35 @@ using std::find_if;
 const CKYByte rsaOID[] = {0x2A,0x86,0x48,0x86,0xF7,0x0D, 0x01, 0x01,0x1};
 const CKYByte eccOID[] = {0x2a,0x86,0x48,0xce,0x3d,0x02,0x01};
 
+#ifdef DEBUG
+void dump(CKYBuffer *buf)
+{
+    CKYSize i;
+    CKYSize size = CKYBuffer_Size(buf);
+#define ROW_LENGTH 60
+    char string[ROW_LENGTH+1];
+    char *bp = &string[0];
+    CKYByte c;
+
+    for (i=0; i < size; i++) {
+	if (i && ((i % (ROW_LENGTH-1)) == 0) ) {
+	    *bp = 0;
+	    printf(" %s\n",string);
+	    bp = &string[0];
+	}
+	c = CKYBuffer_GetChar(buf, i);
+	printf("%02x ",c);
+	*bp++ =  (c < ' ') ? '.' : ((c & 0x80) ? '*' : c);
+    }
+    *bp = 0;
+    for (i= (i % (ROW_LENGTH-1)); i && (i < ROW_LENGTH); i++) {
+	printf("   ");
+    }
+    printf(" %s\n",string);
+    fflush(stdout);
+}
+#endif
+
 bool AttributeMatch::operator()(const PKCS11Attribute& cmp) 
 {
     return (attr->type == cmp.getType()) &&
@@ -65,9 +94,9 @@ PKCS11Object::PKCS11Object(unsigned long muscleObjID_, const CKYBuffer *data,
             "PKCS #11 actual object id does not match stated id");
     }
     if (type == 0) {
-	parseOldObject(data);
+        parseOldObject(data);
     } else if (type == 1) {
-	parseNewObject(data);
+        parseNewObject(data);
     }
 }
 
@@ -152,8 +181,11 @@ void SecretKey::adjustToKeyValueLength(CKYBuffer * secretKeyBuffer,CK_ULONG valu
         CKYBuffer_FreeData(&scratch);
 
     } else if (diff < 0 ) {
-        /* truncate least significant bytes */
-        CKYBuffer_Resize(secretKeyBuffer, valueLength);
+        /* truncate most significant bytes */
+        CKYBuffer_InitFromData(&scratch, CKYBuffer_Data(secretKeyBuffer)-diff, valueLength);
+        CKYBuffer_FreeData(secretKeyBuffer);
+        CKYBuffer_InitFromCopy(secretKeyBuffer, &scratch);
+        CKYBuffer_FreeData(&scratch);
     }
 }
 
@@ -183,29 +215,29 @@ PKCS11Object::parseOldObject(const CKYBuffer *data)
         attrib.setType(CKYBuffer_GetLong(data, idx));
         idx += 4;
         unsigned int attrLen = CKYBuffer_GetShort(data, idx);
-		idx += 2;
+                idx += 2;
         if( attrLen > CKYBuffer_Size(data) 
-			|| (idx + attrLen > CKYBuffer_Size(data)) ) {
+                        || (idx + attrLen > CKYBuffer_Size(data)) ) {
             throw PKCS11Exception(CKR_DEVICE_ERROR,
                 "Invalid attribute length %d\n", attrLen);
         }
-	/* these two types are ints, read them back from 
-	 * the card in host order */
-	if ((attrib.getType() == CKA_CLASS) || 
-	    (attrib.getType() == CKA_CERTIFICATE_TYPE) ||
-	    (attrib.getType() == CKA_KEY_TYPE)) {
-	    /* ulongs are 4 bytes on the token, even if they are 8 or
-	     * more in the pkcs11 module */
-	    if (attrLen != 4) {
+        /* these two types are ints, read them back from 
+         * the card in host order */
+        if ((attrib.getType() == CKA_CLASS) || 
+            (attrib.getType() == CKA_CERTIFICATE_TYPE) ||
+            (attrib.getType() == CKA_KEY_TYPE)) {
+            /* ulongs are 4 bytes on the token, even if they are 8 or
+             * more in the pkcs11 module */
+            if (attrLen != 4) {
                 throw PKCS11Exception(CKR_DEVICE_ERROR,
                 "Invalid attribute length %d\n", attrLen);
-	    }
-	    CK_ULONG value = makeLEUInt(data,idx);
+            }
+            CK_ULONG value = makeLEUInt(data,idx);
 
-	    attrib.setValue((const CKYByte *)&value, sizeof(CK_ULONG));
-	} else {
-	    attrib.setValue(CKYBuffer_Data(data)+idx, attrLen);
-	}
+            attrib.setValue((const CKYByte *)&value, sizeof(CK_ULONG));
+        } else {
+            attrib.setValue(CKYBuffer_Data(data)+idx, attrLen);
+        }
         idx += attrLen;
         attributes.push_back(attrib);
     }
@@ -265,33 +297,33 @@ PKCS11Object::expandAttributes(unsigned long fixedAttrs)
     unsigned long i;
 
     if (!attributeExists(CKA_ID)) {
-	PKCS11Attribute attrib;
-	attrib.setType(CKA_ID);
-	attrib.setValue(&cka_id, 1);
+        PKCS11Attribute attrib;
+        attrib.setType(CKA_ID);
+        attrib.setValue(&cka_id, 1);
         attributes.push_back(attrib);
     }
     /* unpack the class */
     if (!attributeExists(CKA_CLASS)) {
-	PKCS11Attribute attrib;
-	attrib.setType(CKA_CLASS);
-	attrib.setValue((CKYByte *)&objectType, sizeof(CK_ULONG));
+        PKCS11Attribute attrib;
+        attrib.setType(CKA_CLASS);
+        attrib.setValue((CKYByte *)&objectType, sizeof(CK_ULONG));
         attributes.push_back(attrib);
     }
 
     /* unpack the boolean flags. Note, the default mask is based on
      * the class specified in fixedAttrs, not on the real class */
     for (i=1; i < sizeof(unsigned long)*8; i++) {
-	unsigned long iMask = 1<< i;
-	if ((mask & iMask) == 0) {
-	   continue;
-	}
-	if (attributeExists(boolType[i])) {
-	    continue;
-	}
-	PKCS11Attribute attrib;
-	CKYByte bVal = (fixedAttrs & iMask) != 0;
-	attrib.setType(boolType[i]);
-	attrib.setValue(&bVal, 1);
+        unsigned long iMask = 1<< i;
+        if ((mask & iMask) == 0) {
+           continue;
+        }
+        if (attributeExists(boolType[i])) {
+            continue;
+        }
+        PKCS11Attribute attrib;
+        CKYByte bVal = (fixedAttrs & iMask) != 0;
+        attrib.setType(boolType[i]);
+        attrib.setValue(&bVal, 1);
         attributes.push_back(attrib);
     }
 }
@@ -312,40 +344,40 @@ PKCS11Object::parseNewObject(const CKYBuffer *data)
     // load up the explicit attributes first
     for (j=0, offset = 11; j < attributeCount && offset < size; j++) {
         PKCS11Attribute attrib;
-	CKYByte attributeDataType = CKYBuffer_GetChar(data, offset+4);
-	unsigned int attrLen = 0;
+        CKYByte attributeDataType = CKYBuffer_GetChar(data, offset+4);
+        unsigned int attrLen = 0;
         attrib.setType(CKYBuffer_GetLong(data, offset));
         offset += 5;
 
-	switch(attributeDataType) {
-	case DATATYPE_STRING:
-	    attrLen = CKYBuffer_GetShort(data, offset);
-	    offset += 2;
+        switch(attributeDataType) {
+        case DATATYPE_STRING:
+            attrLen = CKYBuffer_GetShort(data, offset);
+            offset += 2;
             if (attrLen > CKYBuffer_Size(data) 
-			|| (offset + attrLen > CKYBuffer_Size(data)) ) {
-            	throw PKCS11Exception(CKR_DEVICE_ERROR,
-            	    "Invalid attribute length %d\n", attrLen);
+                        || (offset + attrLen > CKYBuffer_Size(data)) ) {
+                    throw PKCS11Exception(CKR_DEVICE_ERROR,
+                        "Invalid attribute length %d\n", attrLen);
              }
-	    attrib.setValue(CKYBuffer_Data(data)+offset, attrLen);
-	    break;
-	case DATATYPE_BOOL_FALSE:
-	case DATATYPE_BOOL_TRUE:
-	    {
-		CKYByte bval = attributeDataType & 1;
-		attrib.setValue(&bval, 1);
-	    }
-	    break;
-	case DATATYPE_INTEGER:
-	    {
-		CK_ULONG value = CKYBuffer_GetLong(data, offset);
-		attrLen = 4;
-		attrib.setValue((const CKYByte *)&value, sizeof(CK_ULONG));
-	    }
-	    break;
-	default:
-	    throw PKCS11Exception(CKR_DEVICE_ERROR, 
-		"Invalid attribute Data Type %d\n", attributeDataType);
-	}
+            attrib.setValue(CKYBuffer_Data(data)+offset, attrLen);
+            break;
+        case DATATYPE_BOOL_FALSE:
+        case DATATYPE_BOOL_TRUE:
+            {
+                CKYByte bval = attributeDataType & 1;
+                attrib.setValue(&bval, 1);
+            }
+            break;
+        case DATATYPE_INTEGER:
+            {
+                CK_ULONG value = CKYBuffer_GetLong(data, offset);
+                attrLen = 4;
+                attrib.setValue((const CKYByte *)&value, sizeof(CK_ULONG));
+            }
+            break;
+        default:
+            throw PKCS11Exception(CKR_DEVICE_ERROR, 
+                "Invalid attribute Data Type %d\n", attributeDataType);
+        }
         offset += attrLen;
         attributes.push_back(attrib);
     }
@@ -364,7 +396,7 @@ static const CK_ATTRIBUTE    rdr_template[] = {
 
 bool
 PKCS11Object::matchesTemplate(const CK_ATTRIBUTE_PTR pTemplate, 
-						CK_ULONG ulCount)
+                                                CK_ULONG ulCount)
     const
 {
     unsigned int i;
@@ -373,10 +405,10 @@ PKCS11Object::matchesTemplate(const CK_ATTRIBUTE_PTR pTemplate,
 
 #if defined( NSS_HIDE_NONSTANDARD_OBJECTS )
     if (!ulCount) {
-	// exclude MOZ reader objects from searches for all objects.
-	// To find an MOZ reader object, one must search for it by 
-	// some matching attribute, such as class.
-	iterator iter = find_if(attributes.begin(), attributes.end(),
+        // exclude MOZ reader objects from searches for all objects.
+        // To find an MOZ reader object, one must search for it by 
+        // some matching attribute, such as class.
+        iterator iter = find_if(attributes.begin(), attributes.end(),
                                 AttributeMatch(&rdr_template[0]));
         return (iter == attributes.end()) ? true : false;
     }
@@ -413,7 +445,7 @@ PKCS11Object::getAttribute(CK_ATTRIBUTE_TYPE type) const
             AttributeTypeMatch(type));
 
     if( iter == attributes.end() ) {
-	return NULL;
+        return NULL;
     }
     return iter->getValue();
 }
@@ -460,7 +492,7 @@ PKCS11Object::getAttributeValue(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount,
         // the buffer is large enough. return the value and set the exact
         // length.
         memcpy(pTemplate[i].pValue, CKYBuffer_Data(iter->getValue()), 
-					CKYBuffer_Size(iter->getValue()));
+                                        CKYBuffer_Size(iter->getValue()));
         pTemplate[i].ulValueLen = CKYBuffer_Size(iter->getValue());
     }
 
@@ -495,14 +527,14 @@ PKCS11Object::getLabel()
 
     // none found 
     if( iter == attributes.end() ) {
-	return "";
+        return "";
     }
 
     int size = CKYBuffer_Size(iter->getValue());
 
     label = new char [ size + 1 ];
     if (!label) {
-	return "";
+        return "";
     }
     memcpy(label, CKYBuffer_Data(iter->getValue()), size);
     label[size] = 0;
@@ -520,13 +552,13 @@ PKCS11Object::getClass()
 
     // none found */
     if( iter == attributes.end() ) {
-	return (CK_OBJECT_CLASS) -1;
+        return (CK_OBJECT_CLASS) -1;
     }
 
     int size = CKYBuffer_Size(iter->getValue());
 
     if (size != sizeof(objClass)) {
-	return (CK_OBJECT_CLASS) -1;
+        return (CK_OBJECT_CLASS) -1;
     }
 
     memcpy(&objClass, CKYBuffer_Data(iter->getValue()), size);
@@ -542,7 +574,7 @@ PKCS11Object::setAttribute(CK_ATTRIBUTE_TYPE type, const CKYBuffer *value)
     iter = find_if(attributes.begin(), attributes.end(),
         AttributeTypeMatch(type));
     if( iter != attributes.end() )  {
-	iter->setValue( CKYBuffer_Data(value), CKYBuffer_Size(value));
+        iter->setValue( CKYBuffer_Data(value), CKYBuffer_Size(value));
     } else {
         attributes.push_back(PKCS11Attribute(type, value));
     }
@@ -594,8 +626,14 @@ dataStart(const CKYByte *buf, unsigned int length,
     unsigned char tag;
     unsigned int used_length= 0;
 
+    *data_length = 0; /* make sure data_length is zero on failure */
+
     if(!buf) {
         return NULL;
+    }
+    /* there must be at least 2 bytes */
+    if (length < 2) {
+	return NULL;
     }
 
     tag = buf[used_length++];
@@ -610,15 +648,22 @@ dataStart(const CKYByte *buf, unsigned int length,
     if (*data_length&0x80) {
         int  len_count = *data_length & 0x7f;
 
+	if (len_count+used_length > length) {
+	    return NULL;
+	}
+
         *data_length = 0;
 
         while (len_count-- > 0) {
             *data_length = (*data_length << 8) | buf[used_length++];
         }
     }
+    /* paranoia, can't happen */
+    if (length < used_length) {
+	return NULL;
+    }
 
     if (*data_length > (length-used_length) ) {
-        *data_length = length-used_length;
         return NULL;
     }
     if (includeTag) *data_length += used_length;
@@ -714,6 +759,58 @@ GetKeyAlgorithmId(const CKYByte *spki_data, unsigned int spki_length,
 
 }
 
+static PKCS11Object::KeyType
+GetKeyTypeFromSPKI(const CKYBuffer *key)
+{
+    CCItem algIdItem;
+    SECStatus ret = GetKeyAlgorithmId(CKYBuffer_Data(key), 
+                                      CKYBuffer_Size(key),&algIdItem);
+    PKCS11Object::KeyType foundType = PKCS11Object::unknown;
+
+    if ( ret != SECSuccess ) {
+	throw PKCS11Exception(CKR_FUNCTION_FAILED,
+	     "Failed to decode key algorithm ID.");
+    }
+
+    unsigned int length = 0;
+    const CKYByte *keyData = NULL;
+
+    /* Get actual oid buffer */
+
+    keyData = dataStart(algIdItem.data,algIdItem.len,&length, false);
+
+    bool match = FALSE;
+    
+    /* Check for outrageous length */
+
+    if ( length <= 3 || length >= algIdItem.len) {
+	throw PKCS11Exception(CKR_FUNCTION_FAILED,
+	     "Failed to decode key algorithm ID.");
+    }
+    /* check for RSA */
+ 
+    match = GetKeyOIDMatches(keyData, length, rsaOID);
+   
+    if ( match == TRUE ) {
+	foundType = PKCS11Object::rsa;
+    } else { 
+	/* check for ECC */
+	match = GetKeyOIDMatches(keyData, length, eccOID);
+
+	if ( match == TRUE ) {
+            foundType = PKCS11Object::ecc;
+	}
+
+    }
+
+    if ( foundType == PKCS11Object::unknown) {
+	throw PKCS11Exception(CKR_FUNCTION_FAILED,
+	     "Failed to decode key algorithm ID.");
+    }
+    return foundType;
+}
+
+
 static SECStatus
 GetKeyFieldItems(const CKYByte *spki_data,unsigned int spki_length,
         CCItem *modulus, CCItem *exponent)
@@ -759,7 +856,7 @@ GetKeyFields(const CKYBuffer *spki, CKYBuffer *modulus, CKYBuffer *exponent)
     CCItem modulusItem, exponentItem;
 
     rv = GetKeyFieldItems(CKYBuffer_Data(spki), CKYBuffer_Size(spki), 
-	&modulusItem, &exponentItem);
+        &modulusItem, &exponentItem);
 
     if( rv != SECSuccess ) {
         throw PKCS11Exception(CKR_FUNCTION_FAILED,
@@ -846,114 +943,58 @@ Key::completeKey(const PKCS11Object &cert)
     // infer key attributes from cert
     bool modulusExists, exponentExists;
     bool pointExists, paramsExists;
-    CKYBuffer modulus; CKYBuffer_InitEmpty(&modulus);
-    CKYBuffer exponent; CKYBuffer_InitEmpty(&exponent);
 
-    CKYBuffer point; CKYBuffer_InitEmpty(&point);
-    CKYBuffer params; CKYBuffer_InitEmpty(&params);
-
-
-    KeyType foundType = unknown;
-    CCItem algIdItem;
-
+    PKCS11Object::KeyType keyType;
     const CKYBuffer *key = cert.getPubKey();
-
-    SECStatus ret = GetKeyAlgorithmId(CKYBuffer_Data(key), CKYBuffer_Size(key),&algIdItem);
-
-    if ( ret != SECSuccess ) {
-        throw PKCS11Exception(CKR_FUNCTION_FAILED,
-            "Failed to decode key algorithm ID.");
-    }
-
-    unsigned int length = 0;
-    const CKYByte *keyData = NULL;
-
-    /* Get actual oid buffer */
-
-    keyData = dataStart(algIdItem.data,algIdItem.len,&length, false);
-
-    bool match = FALSE;
-    
-    /* Check for outrageous length */
-
-    if ( length <= 3 || length >= algIdItem.len) {
-        throw PKCS11Exception(CKR_FUNCTION_FAILED,
-            "Failed to decode key algorithm ID.");
-    }
-    /* check for RSA */
- 
-    match = GetKeyOIDMatches(keyData, length, rsaOID);
-   
-    if ( match == TRUE ) {
-       foundType = rsa;
-    } else { 
-
-    /* check for ECC */
-
-      match = GetKeyOIDMatches(keyData, length, eccOID);
-
-      if ( match == TRUE ) {
-         foundType = ecc;
-      }
-
-    }
-
-    if ( foundType == unknown) {
-        throw PKCS11Exception(CKR_FUNCTION_FAILED,
-            "Failed to decode key algorithm ID.");
-    }
 
     if (!attributeExists(CKA_LABEL)) {
 	setAttribute(CKA_LABEL, cert.getAttribute(CKA_LABEL));
     }
 
-    if ( foundType == rsa ) {
-        setKeyType(rsa);
-        try {
+    CKYBuffer param1; CKYBuffer_InitEmpty(&param1); 
+    CKYBuffer param2; CKYBuffer_InitEmpty(&param2); 
+    try {
+	keyType = GetKeyTypeFromSPKI(key);
+	setKeyType(keyType);
+
+	switch (keyType) {
+	case rsa:
             modulusExists = attributeExists(CKA_MODULUS);
 	    exponentExists = attributeExists(CKA_PUBLIC_EXPONENT);
 	    if (!modulusExists || !exponentExists) {
-	        GetKeyFields(key, &modulus, &exponent);
+	        GetKeyFields(key, &param1, &param2);
 	        if (!modulusExists) {
-	    	    setAttribute(CKA_MODULUS, &modulus);
+	    	    setAttribute(CKA_MODULUS, &param1);
 	        }
 	        if (!exponentExists) {
-	  	    setAttribute(CKA_PUBLIC_EXPONENT, &exponent);
+	  	    setAttribute(CKA_PUBLIC_EXPONENT, &param2);
 	        }
 	    }
-        } catch (PKCS11Exception &e) {
-  	    CKYBuffer_FreeData(&modulus);
-	    CKYBuffer_FreeData(&exponent);
-	    throw e;
-        }
-        CKYBuffer_FreeData(&modulus);
-        CKYBuffer_FreeData(&exponent);
-
-    } else { /* has to be ecc to get here */
-
-        setKeyType(ecc);
-        try {
+	    break;
+	case ecc:
             pointExists = attributeExists(CKA_EC_POINT);
             paramsExists = attributeExists(CKA_EC_PARAMS);
 
             if (!pointExists || !paramsExists) {
-                GetECKeyFields(key, &point, &params);
+                GetECKeyFields(key, &param1, &param2);
                 if (!pointExists) {
-                   setAttribute(CKA_EC_POINT, &point);
+                   setAttribute(CKA_EC_POINT, &param1);
                 }
                 if (!paramsExists) {
-                    setAttribute(CKA_EC_PARAMS, &params);
+                    setAttribute(CKA_EC_PARAMS, &param2);
                 }
             }
-        } catch (PKCS11Exception &e) {
-            CKYBuffer_FreeData(&point);
-            CKYBuffer_FreeData(&params);
-            throw e;
-        }
-        CKYBuffer_FreeData(&point);
-        CKYBuffer_FreeData(&params);
+	    break;
+	default:
+	    break;
+	}
+    } catch (PKCS11Exception &e) {
+	CKYBuffer_FreeData(&param1);
+	CKYBuffer_FreeData(&param2);
+	throw e;
     }
-
+    CKYBuffer_FreeData(&param1);
+    CKYBuffer_FreeData(&param2);
 }
 
 static SECStatus
@@ -1025,14 +1066,14 @@ GetCertFieldItems(const CKYByte *dercert,unsigned int cert_length,
 
 static void
 GetCertFields(const CKYBuffer *derCert, CKYBuffer *derSerial, 
-	    CKYBuffer *derSubject, CKYBuffer *derIssuer, CKYBuffer *subjectKey)
+            CKYBuffer *derSubject, CKYBuffer *derIssuer, CKYBuffer *subjectKey)
 {
     SECStatus rv;
     CCItem issuerItem, serialItem, derSerialItem, subjectItem,
         validityItem, subjectKeyItem;
 
     rv = GetCertFieldItems(CKYBuffer_Data(derCert), CKYBuffer_Size(derCert), 
-	&issuerItem, &serialItem, &derSerialItem, &subjectItem, &validityItem,
+        &issuerItem, &serialItem, &derSerialItem, &subjectItem, &validityItem,
         &subjectKeyItem);
 
     if( rv != SECSuccess ) {
@@ -1057,50 +1098,50 @@ Cert::Cert(unsigned long muscleObjID, const CKYBuffer *data,
     CK_ULONG certTypeValue = CKC_X_509;
 
     CKYBuffer_InitFromData(&certType, (CKYByte *)&certTypeValue, 
-						sizeof(certTypeValue));
+                                                sizeof(certTypeValue));
     CKYBuffer_Resize(&pubKey,0);
 
     try {
- 	setAttribute(CKA_CERTIFICATE_TYPE, &certType);
+         setAttribute(CKA_CERTIFICATE_TYPE, &certType);
 
-	if (!attributeExists(CKA_VALUE)) {
-	    if (derCert) {
-		 setAttribute(CKA_VALUE, derCert);
-	    } else  {
-		throw PKCS11Exception(CKR_DEVICE_ERROR, 
-		    "Missing certificate data from token");
-	    }
-	}
+        if (!attributeExists(CKA_VALUE)) {
+            if (derCert) {
+                 setAttribute(CKA_VALUE, derCert);
+            } else  {
+                throw PKCS11Exception(CKR_DEVICE_ERROR, 
+                    "Missing certificate data from token");
+            }
+        }
 
-	if (!derCert) {
-	    derCert = getAttribute(CKA_VALUE);
-	    if (!derCert) {
-		// paranoia, should never happen since we verify the
-		// attribute exists above
-		throw PKCS11Exception(CKR_DEVICE_ERROR, 
-		     "Missing certificate data from token");
-	    }
-	}
+        if (!derCert) {
+            derCert = getAttribute(CKA_VALUE);
+            if (!derCert) {
+                // paranoia, should never happen since we verify the
+                // attribute exists above
+                throw PKCS11Exception(CKR_DEVICE_ERROR, 
+                     "Missing certificate data from token");
+            }
+        }
 
-	// infer cert attributes
+        // infer cert attributes
 
-	GetCertFields(derCert, &derSerial, &derSubject, &derIssuer, &pubKey);
+        GetCertFields(derCert, &derSerial, &derSubject, &derIssuer, &pubKey);
 
-	if (!attributeExists(CKA_SERIAL_NUMBER)) {
-	    setAttribute(CKA_SERIAL_NUMBER, &derSerial);
-	}
-	if (!attributeExists(CKA_SUBJECT)) {
-	    setAttribute(CKA_SUBJECT, &derSubject);
-	}
-	if (!attributeExists(CKA_ISSUER)) {
-	    setAttribute(CKA_ISSUER, &derIssuer);
-	}
+        if (!attributeExists(CKA_SERIAL_NUMBER)) {
+            setAttribute(CKA_SERIAL_NUMBER, &derSerial);
+        }
+        if (!attributeExists(CKA_SUBJECT)) {
+            setAttribute(CKA_SUBJECT, &derSubject);
+        }
+        if (!attributeExists(CKA_ISSUER)) {
+            setAttribute(CKA_ISSUER, &derIssuer);
+        }
    } catch (PKCS11Exception &e) {
-	CKYBuffer_FreeData(&certType);
-	CKYBuffer_FreeData(&derSerial);
-	CKYBuffer_FreeData(&derSubject);
-	CKYBuffer_FreeData(&derIssuer);
-	throw e;
+        CKYBuffer_FreeData(&certType);
+        CKYBuffer_FreeData(&derSerial);
+        CKYBuffer_FreeData(&derSubject);
+        CKYBuffer_FreeData(&derIssuer);
+        throw e;
     }
     CKYBuffer_FreeData(&certType);
     CKYBuffer_FreeData(&derSerial);
@@ -1110,7 +1151,7 @@ Cert::Cert(unsigned long muscleObjID, const CKYBuffer *data,
 
 Reader::Reader(unsigned long muscleObjID, CK_OBJECT_HANDLE handle, 
     const char *reader, const CKYBuffer *cardATR, bool isCoolkey) : 
-	PKCS11Object(muscleObjID, handle)
+        PKCS11Object(muscleObjID, handle)
 {
     setAttributeULong(CKA_CLASS, CKO_MOZ_READER);
     setAttribute(CKA_LABEL, reader);
@@ -1121,9 +1162,10 @@ Reader::Reader(unsigned long muscleObjID, CK_OBJECT_HANDLE handle,
     setAttribute(CKA_MOZ_ATR, cardATR);
 }
 
+
 CACPrivKey::CACPrivKey(CKYByte instance, const PKCS11Object &cert) : 
-	PKCS11Object( ((int)'k') << 24 | ((int)instance+'0') << 16,
-			 instance | 0x400)
+        PKCS11Object( ((int)'k') << 24 | ((int)instance+'0') << 16,
+                         instance | 0x400)
 {
     CKYBuffer id;
     CKYBuffer empty;
@@ -1132,7 +1174,7 @@ CACPrivKey::CACPrivKey(CKYByte instance, const PKCS11Object &cert) :
     /* So we know what the key is supposed to be used for based on
      * the instance */
     if (instance == 2) {
-	decrypt = TRUE;
+        decrypt = TRUE;
     }
 
     CKYBuffer_InitEmpty(&empty);
@@ -1151,33 +1193,52 @@ CACPrivKey::CACPrivKey(CKYByte instance, const PKCS11Object &cert) :
     setAttributeBool(CKA_LOCAL, TRUE);
     setAttributeULong(CKA_KEY_TYPE, CKK_RSA);
 
-    setAttributeBool(CKA_DECRYPT, decrypt);
     setAttributeBool(CKA_SIGN, !decrypt);
     setAttributeBool(CKA_SIGN_RECOVER, !decrypt);
     setAttributeBool(CKA_UNWRAP, FALSE);
     setAttributeBool(CKA_SENSITIVE, TRUE);
     setAttributeBool(CKA_EXTRACTABLE, FALSE);
 
-    CKYBuffer modulus; CKYBuffer_InitEmpty(&modulus);
-    CKYBuffer exponent; CKYBuffer_InitEmpty(&exponent);
+    CKYBuffer param1; CKYBuffer_InitEmpty(&param1);
+    CKYBuffer param2; CKYBuffer_InitEmpty(&param2);
 
     try {
-	const CKYBuffer *key = cert.getPubKey();
-	GetKeyFields(key, &modulus, &exponent);
-	setAttribute(CKA_MODULUS, &modulus);
-	setAttribute(CKA_PUBLIC_EXPONENT, &exponent);
-    } catch (PKCS11Exception &e) {
-	CKYBuffer_FreeData(&modulus);
-	CKYBuffer_FreeData(&exponent);
-	throw e;
-    }
-    CKYBuffer_FreeData(&modulus);
-    CKYBuffer_FreeData(&exponent);
+        const CKYBuffer *key = cert.getPubKey();
+        keyType = GetKeyTypeFromSPKI(key);
+        setKeyType(keyType);
+
+        switch (keyType) {
+        case rsa:
+            GetKeyFields(key, &param1, &param2);
+            setAttribute(CKA_MODULUS, &param1);
+            setAttribute(CKA_PUBLIC_EXPONENT, &param2);
+	    setAttributeULong(CKA_KEY_TYPE, CKK_RSA);
+	    setAttributeBool(CKA_DECRYPT, decrypt);
+	    setAttributeBool(CKA_DERIVE, FALSE);
+            break;
+        case ecc:
+            GetECKeyFields(key, &param1, &param2);
+            setAttribute(CKA_EC_POINT, &param1);
+            setAttribute(CKA_EC_PARAMS, &param2);
+	    setAttributeULong(CKA_KEY_TYPE, CKK_EC);
+	    setAttributeBool(CKA_DECRYPT, FALSE);
+	    setAttributeBool(CKA_DERIVE, decrypt);
+            break;
+        default:
+            break;
+        }
+     } catch (PKCS11Exception &e) {
+        CKYBuffer_FreeData(&param1);
+        CKYBuffer_FreeData(&param2);
+        throw e;
+     }
+     CKYBuffer_FreeData(&param1);
+     CKYBuffer_FreeData(&param2);
 }
 
 CACPubKey::CACPubKey(CKYByte instance, const PKCS11Object &cert) : 
-	PKCS11Object( ((int)'k') << 24 | ((int)(instance+'5')) << 16,
-		       instance | 0x500)
+        PKCS11Object( ((int)'k') << 24 | ((int)(instance+'5')) << 16,
+                       instance | 0x500)
 {
     CKYBuffer id;
     CKYBuffer empty;
@@ -1186,7 +1247,7 @@ CACPubKey::CACPubKey(CKYByte instance, const PKCS11Object &cert) :
     /* So we know what the key is supposed to be used for based on
      * the instance */
     if (instance == 2) {
-	encrypt = TRUE;
+        encrypt = TRUE;
     }
 
     CKYBuffer_InitEmpty(&empty);
@@ -1203,34 +1264,49 @@ CACPubKey::CACPubKey(CKYByte instance, const PKCS11Object &cert) :
     setAttribute(CKA_END_DATE, &empty);
     setAttributeBool(CKA_DERIVE, FALSE);
     setAttributeBool(CKA_LOCAL, TRUE);
-    setAttributeULong(CKA_KEY_TYPE, CKK_RSA);
 
     setAttributeBool(CKA_ENCRYPT, encrypt);
     setAttributeBool(CKA_VERIFY, !encrypt);
     setAttributeBool(CKA_VERIFY_RECOVER, !encrypt);
     setAttributeBool(CKA_WRAP, FALSE);
 
-    CKYBuffer modulus; CKYBuffer_InitEmpty(&modulus);
-    CKYBuffer exponent; CKYBuffer_InitEmpty(&exponent);
+    CKYBuffer param1; CKYBuffer_InitEmpty(&param1);
+    CKYBuffer param2; CKYBuffer_InitEmpty(&param2);
 
     try {
-	const CKYBuffer *key = cert.getPubKey();
-	GetKeyFields(key, &modulus, &exponent);
-	setAttribute(CKA_MODULUS, &modulus);
-	setAttribute(CKA_PUBLIC_EXPONENT, &exponent);
-    } catch (PKCS11Exception &e) {
-	CKYBuffer_FreeData(&modulus);
-	CKYBuffer_FreeData(&exponent);
-	throw e;
-    }
-    CKYBuffer_FreeData(&modulus);
-    CKYBuffer_FreeData(&exponent);
+        const CKYBuffer *key = cert.getPubKey();
+        keyType = GetKeyTypeFromSPKI(key);
+        setKeyType(keyType);
+
+        switch (keyType) {
+        case rsa:
+            GetKeyFields(key, &param1, &param2);
+            setAttribute(CKA_MODULUS, &param1);
+            setAttribute(CKA_PUBLIC_EXPONENT, &param2);
+	    setAttributeULong(CKA_KEY_TYPE, CKK_RSA);
+            break;
+        case ecc:
+            GetECKeyFields(key, &param1, &param2);
+            setAttribute(CKA_EC_POINT, &param1);
+            setAttribute(CKA_EC_PARAMS, &param2);
+	    setAttributeULong(CKA_KEY_TYPE, CKK_EC);
+            break;
+        default:
+            break;
+        }
+     } catch (PKCS11Exception &e) {
+        CKYBuffer_FreeData(&param1);
+        CKYBuffer_FreeData(&param2);
+        throw e;
+     }
+     CKYBuffer_FreeData(&param1);
+     CKYBuffer_FreeData(&param2);
 }
 
 static const char *CAC_Label[] = {
-	"CAC ID Certificate",
-	"CAC Email Signature Certificate",
-	"CAC Email Encryption Certificate",
+        "CAC ID Certificate",
+        "CAC Email Signature Certificate",
+        "CAC Email Encryption Certificate",
 };
 
 static const unsigned char CN_DATA[] = { 0x55, 0x4, 0x3 };
@@ -1247,39 +1323,43 @@ GetCN(const CKYByte *dn, unsigned int dn_length, CCItem *cn)
     if (buf == NULL) return SECFailure;
 
     while (buf_length) {
-	const CKYByte *name;
-	unsigned int name_length;
-	const CKYByte *oid;
-	unsigned int oid_length;
+        const CKYByte *name;
+        unsigned int name_length;
+        const CKYByte *oid;
+        unsigned int oid_length;
 
-	/* unwrap the set */
-	name = dataStart(buf, buf_length, &name_length, false);
+        /* unwrap the set */
+        name = dataStart(buf, buf_length, &name_length, false);
+	if (name == NULL) return SECFailure;
 
         /* advance to next set */
-	buf_length -= (name-buf) + name_length;
-	buf = name + name_length; 
+        buf_length -= (name-buf) + name_length;
+        buf = name + name_length; 
 
-	/* unwrap the Sequence */
-	name = dataStart(name, name_length, &name_length, false);
+        /* unwrap the Sequence */
+        name = dataStart(name, name_length, &name_length, false);
+	if (name == NULL) return SECFailure;
 
         /* unwrap the oid */
-	oid = dataStart(name, name_length, &oid_length, false);
+        oid = dataStart(name, name_length, &oid_length, false);
+	if (oid == NULL) return SECFailure;
 
-	/* test the oid */
-	if (oid_length != CN_LENGTH) {
-	    continue;
-	}
-	if (memcmp(oid, CN_DATA, CN_LENGTH) != 0) {
-	    continue;
-	}
+        /* test the oid */
+        if (oid_length != CN_LENGTH) {
+            continue;
+        }
+        if (memcmp(oid, CN_DATA, CN_LENGTH) != 0) {
+            continue;
+        }
 
-	/* advance to CN */
-	name_length -= (oid-name) + oid_length;
-	name = oid + oid_length;
+        /* advance to CN */
+        name_length -= (oid-name) + oid_length;
+        name = oid + oid_length;
 
-	/* unwrap the CN */
-	cn->data = dataStart(name, name_length, &cn->len, false);
-	return SECSuccess;
+        /* unwrap the CN */
+        cn->data = dataStart(name, name_length, &cn->len, false);
+	if (cn->data == NULL) return SECFailure;
+        return SECSuccess;
     }
     return SECFailure;
 }
@@ -1294,11 +1374,11 @@ GetUserName(const CKYBuffer *dn)
     rv = GetCN(CKYBuffer_Data(dn), CKYBuffer_Size(dn) , &cn);
 
     if( rv != SECSuccess ) {
-	return NULL;
+        return NULL;
     }
     string = new char [ cn.len + 1 ];
     if (string == NULL) {
-	return NULL;
+        return NULL;
     }
     memcpy(string, cn.data, cn.len);
     string[cn.len] = 0;
@@ -1306,8 +1386,8 @@ GetUserName(const CKYBuffer *dn)
 }
 
 CACCert::CACCert(CKYByte instance, const CKYBuffer *derCert) : 
-	PKCS11Object( ((int)'c') << 24 | ((int)instance+'0') << 16, 
-			instance | 0x600)
+        PKCS11Object( ((int)'c') << 24 | ((int)instance+'0') << 16, 
+                        instance | 0x600)
 {
     CKYBuffer id;
     CKYBuffer empty;
@@ -1316,7 +1396,7 @@ CACCert::CACCert(CKYByte instance, const CKYBuffer *derCert) :
     /* So we know what the key is supposed to be used for based on
      * the instance */
     if (instance == 2) {
-	decrypt = TRUE;
+        decrypt = TRUE;
     }
 
     CKYBuffer_InitEmpty(&empty);
@@ -1338,19 +1418,19 @@ CACCert::CACCert(CKYByte instance, const CKYBuffer *derCert) :
     CKYBuffer_Resize(&pubKey,0);
 
     try {
-	setAttribute(CKA_VALUE, derCert);
-	// infer cert attributes
+        setAttribute(CKA_VALUE, derCert);
+        // infer cert attributes
 
-	GetCertFields(derCert, &derSerial, &derSubject, &derIssuer, &pubKey);
+        GetCertFields(derCert, &derSerial, &derSubject, &derIssuer, &pubKey);
 
-	setAttribute(CKA_SERIAL_NUMBER, &derSerial);
-	setAttribute(CKA_SUBJECT, &derSubject);
-	setAttribute(CKA_ISSUER, &derIssuer);
+        setAttribute(CKA_SERIAL_NUMBER, &derSerial);
+        setAttribute(CKA_SUBJECT, &derSubject);
+        setAttribute(CKA_ISSUER, &derIssuer);
    } catch (PKCS11Exception &e) {
-	CKYBuffer_FreeData(&derSerial);
-	CKYBuffer_FreeData(&derSubject);
-	CKYBuffer_FreeData(&derIssuer);
-	throw e;
+        CKYBuffer_FreeData(&derSerial);
+        CKYBuffer_FreeData(&derSubject);
+        CKYBuffer_FreeData(&derIssuer);
+        throw e;
     }
 
     name = GetUserName(&derSubject); /* adopt */
@@ -1459,3 +1539,4 @@ int DEREncodedSignature::getRawSignature(CKYBuffer *rawSig, unsigned int keySize
 
     return CKYSUCCESS;
 }
+

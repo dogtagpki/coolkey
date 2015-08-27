@@ -364,6 +364,7 @@ CKYAppletFill_AppendBuffer(const CKYBuffer *response, CKYSize size, void *param)
 }
 
 
+
 CKYStatus
 CKYAppletFill_Byte(const CKYBuffer *response, CKYSize size, void *param)
 {
@@ -1079,6 +1080,7 @@ CACApplet_VerifyPIN(CKYCardConnection *conn, const char *pin, int local,
 }
 
 
+
 /*
  * Get a CAC Certificate 
  */
@@ -1215,37 +1217,6 @@ CACApplet_GetCertificateAppend(CKYCardConnection *conn, CKYBuffer *cert,
     return ret;
 }
 
-/* Select the PIV applet */
-static CKYByte pivAid[] = {0xa0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 
-			   0x10, 0x00};
-CKYStatus
-PIVApplet_Select(CKYCardConnection *conn, CKYISOStatus *apduRC)
-{
-    CKYStatus ret;
-    CKYBuffer PIV_Applet_AID,return_AID;
-    
-    CKYBuffer_InitEmpty(&return_AID);
-    CKYBuffer_InitFromData(&PIV_Applet_AID, pivAid, sizeof(pivAid));
-    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, 
-		 &PIV_Applet_AID,
-		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_AppendBuffer, 
-		 &return_AID, apduRC);
-    /* Some cards return OK, but don't switch to our applet */
-    /* PIV has a well defined return for it's select, check to see if we have
-     * a PIV card here */
-    if (CKYBuffer_GetChar(&return_AID,0) != 0x61) {
-	/* not an application property template, so not a PIV. We could
-	 * check that the aid tag (0x4f) and theallocation authority tag (0x79)
-	 * are present, but what we are really avoiding is broken cards that
-	 * lie about being able to switch to a particular applet, so the first
-	 * tag should be sufficient */
-	ret = CKYAPDUFAIL; /* what we should have gotten */
-    }
-    CKYBuffer_FreeData(&PIV_Applet_AID);
-    CKYBuffer_FreeData(&return_AID);
-    return ret;
-}
-
 /*
  * Get a PIV Certificate 
  */
@@ -1290,6 +1261,36 @@ loser:
     return ret;
 }
 
+/* Select the PIV applet */
+static CKYByte pivAid[] = {0xa0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 
+			   0x10, 0x00};
+CKYStatus
+PIVApplet_Select(CKYCardConnection *conn, CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYBuffer PIV_Applet_AID,return_AID;
+    
+    CKYBuffer_InitEmpty(&return_AID);
+    CKYBuffer_InitFromData(&PIV_Applet_AID, pivAid, sizeof(pivAid));
+    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, 
+		 &PIV_Applet_AID,
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_AppendBuffer, 
+		 &return_AID, apduRC);
+    /* Some cards return OK, but don't switch to our applet */
+    /* PIV has a well defined return for it's select, check to see if we have
+     * a PIV card here */
+    if (CKYBuffer_GetChar(&return_AID,0) != 0x61) {
+	/* not an application property template, so not a PIV. We could
+	 * check that the aid tag (0x4f) and theallocation authority tag (0x79)
+	 * are present, but what we are really avoiding is broken cards that
+	 * lie about being able to switch to a particular applet, so the first
+	 * tag should be sufficient */
+	ret = CKYAPDUFAIL; /* what we should have gotten */
+    }
+    CKYBuffer_FreeData(&PIV_Applet_AID);
+    CKYBuffer_FreeData(&return_AID);
+    return ret;
+}
 
 /*
  * record the next ber tag and length. NOTE: this is a state machine.
@@ -1382,11 +1383,12 @@ piv_wrapEncodeLength(CKYBuffer *buf, int length, int ber_len)
  * do a PIV Sign/Decrypt
  */
 CKYStatus
-PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
+PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key, unsigned int keySize, int derive,
 		const CKYBuffer *data, CKYBuffer *result, CKYISOStatus *apduRC)
 {
     CKYStatus ret;
     CKYSize dataSize = CKYBuffer_Size(data);
+    CKYSize outputSize = keySize;
     CKYOffset offset = 0;
     CKYBuffer tmp;
     CKYByte  alg;
@@ -1396,15 +1398,25 @@ PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
     PIVAppletArgSignDecrypt pasd; 
     PIVAppletRespSignDecrypt prsd; 
 
-    /* PIV only defines RSA 1024 and 2048!!! */
-    if (dataSize == 128) { /* 1024 bit == 128 bytes */
+    /* PIV only defines RSA 1024 and 2048, ECC 256 and ECC 384!!! */
+    if (keySize == 128) { /* 1024 bit == 128 bytes */
 	ber_len_2 = 2;
 	ber_len_1 = 2;
-	alg = 6;
-    } else if (dataSize == 256) { /* 2048 bits == 256 bytes */
+	alg = 0x6;
+    } else if (keySize == 256) { /* 2048 bits == 256 bytes */
 	ber_len_2 = 3;
 	ber_len_1 = 3;
-	alg = 7;
+	alg = 0x7;
+    } else if (keySize == 32) {  /* 256 bits = 32 bytes */
+	ber_len_2 = 1;
+	ber_len_1 = 1;
+	alg = 0x11;
+	if (!derive) outputSize = keySize*2;
+    } else if (keySize == 48) {  /* 384 bits = 48 bytes */
+	ber_len_2 = 1;
+	ber_len_1 = 1;
+	alg = 0x14;
+	if (!derive) outputSize = keySize*2;
     } else {
 	return CKYINVALIDARGS; 
     }
@@ -1418,7 +1430,7 @@ PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
     piv_wrapEncodeLength(&tmp,dataSize + ber_len_2 + 3,ber_len_1);
     CKYBuffer_AppendChar(&tmp,0x82);
     CKYBuffer_AppendChar(&tmp,0x0);
-    CKYBuffer_AppendChar(&tmp,0x81);
+    CKYBuffer_AppendChar(&tmp, derive ? 0x85 : 0x81);
     piv_wrapEncodeLength(&tmp,dataSize,ber_len_2);
 
     /* now length == header length from here to the end*/
@@ -1427,7 +1439,7 @@ PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
     if (length + dataSize > CKY_MAX_WRITE_CHUNK_SIZE) {
 	CKYBuffer_AppendBuffer(&tmp, data, 0, CKY_MAX_WRITE_CHUNK_SIZE-length);
     } else {
-	CKYBuffer_AppendBuffer(&tmp, data, 0, length+dataSize);
+	CKYBuffer_AppendBuffer(&tmp, data, 0, dataSize);
     }
 
     prsd.tag_1.tag = 0;
@@ -1460,14 +1472,14 @@ PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
     }
 
     pasd.chain = 0;
-    pasd.len = dataSize;
+    pasd.len = outputSize;
 
     ret = CKYApplet_HandleAPDU(conn, PIVAppletFactory_SignDecrypt, 
 			    &pasd, NULL, CKY_SIZE_UNKNOWN, 
 			    pivAppletFill_AppendUnwrapBuffer, 
 			    &prsd, apduRC);
 
-    if ((ret == CKYSUCCESS) && (CKYBuffer_Size(result) != dataSize)) {
+    if ((ret == CKYSUCCESS) && (CKYBuffer_Size(result) != outputSize)) {
 	/* RSA returns the same data size as input, didn't happen, so
 	 * something is wrong. */
     }

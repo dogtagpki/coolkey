@@ -213,7 +213,7 @@ class CryptOpState {
     CKYBuffer result;
     PKCS11Object::KeyType keyType;
 
-    CryptOpState() : state(NOT_INITIALIZED), keyNum(0) 
+    CryptOpState() : state(NOT_INITIALIZED), keyNum(0) , keyType(PKCS11Object::unknown)
 				{ CKYBuffer_InitEmpty(&result); }
     CryptOpState(const CryptOpState &cpy) : 
 				state(cpy.state), keyNum(cpy.keyNum), keyType(cpy.keyType) { 
@@ -271,11 +271,10 @@ typedef SessionList::const_iterator SessionConstIter;
 class CryptParams {
   private:
     unsigned int keySize; // in bits
-  protected:
-    unsigned int getKeySize() const { return keySize; }
   public:
     // set the actual key size obtained from the card
     void setKeySize(unsigned int newKeySize) { keySize = newKeySize; }
+    unsigned int getKeySize() const { return keySize; }
     enum { DEFAULT_KEY_SIZE = 1024, ECC_DEFAULT_KEY_SIZE=256 };
 
 
@@ -444,17 +443,18 @@ class Slot {
         CK_ULONG ulInputLen, CK_BYTE_PTR pOutput,
         CK_ULONG_PTR pulOutputLen, CryptParams& params);
 
-    void performRSAOp(CKYBuffer *out, const CKYBuffer *input, CKYByte keyNum, 
-							     CKYByte direction);
+    void performRSAOp(CKYBuffer *out, const CKYBuffer *input, unsigned int keySize,
+						CKYByte keyNum, CKYByte direction);
 
     void signECC(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
         CK_ULONG ulInputLen, CK_BYTE_PTR pOutput,
         CK_ULONG_PTR pulOutputLen, CryptParams& params);
 
-    void performECCSignature(CKYBuffer *out, const CKYBuffer *input, CKYByte keyNum);
+    void performECCSignature(CKYBuffer *out, const CKYBuffer *input, 
+					unsigned int keySize, CKYByte keyNum);
     void performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech, 
         CKYBuffer *publicDataBuffer, 
-        CKYBuffer *secretKeyBuffer, CKYByte keyNum);
+        CKYBuffer *secretKeyBuffer, CKYByte keyNum, unsigned int keySize);
 
     void processComputeCrypt(CKYBuffer *result, const CKYAPDU *apdu);
 
@@ -642,7 +642,6 @@ class SlotList {
     void derive(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
         CK_OBJECT_HANDLE hKey, CK_ATTRIBUTE_PTR pTemplate, 
         CK_ULONG ulAttributeCount, CK_OBJECT_HANDLE_PTR phKey);
-
 
 };
 #endif

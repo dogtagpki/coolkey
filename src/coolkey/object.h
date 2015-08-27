@@ -49,7 +49,7 @@ class PKCS11Attribute {
 				CKYBuffer_Size(&cpy.value));
 	return *this;
     }
-    PKCS11Attribute() { CKYBuffer_InitEmpty(&value); }
+    PKCS11Attribute() : type(0){ CKYBuffer_InitEmpty(&value); }
     PKCS11Attribute(CK_ATTRIBUTE_TYPE type_, const CKYBuffer *value_)
         : type(type_) { CKYBuffer_InitFromCopy(&value, value_); }
     ~PKCS11Attribute() { CKYBuffer_FreeData(&value); }
@@ -57,12 +57,10 @@ class PKCS11Attribute {
 
 class PKCS11Object {
   public:
-
-    enum KeyType
-    {
-       rsa,
-       ecc,
-       unknown
+    enum KeyType {
+        rsa,
+        ecc,
+        unknown
     };
 
     typedef list<PKCS11Attribute> AttributeList;
@@ -90,13 +88,13 @@ class PKCS11Object {
     PKCS11Object(unsigned long muscleObjID, CK_OBJECT_HANDLE handle);
     PKCS11Object(unsigned long muscleObjID, const CKYBuffer *data,
         CK_OBJECT_HANDLE handle);
-    ~PKCS11Object() { delete [] label; delete [] name; CKYBuffer_FreeData(&pubKey); attributes.clear(); }
+    ~PKCS11Object() { delete [] label; delete [] name; 
+			CKYBuffer_FreeData(&pubKey); attributes.clear(); }
 
     PKCS11Object(const PKCS11Object& cpy) :
         attributes(cpy.attributes), muscleObjID(cpy.muscleObjID),
         handle(cpy.handle), label(NULL),  name(NULL), keyType(cpy.keyType) { 
 			CKYBuffer_InitFromCopy(&pubKey,&cpy.pubKey); }
-
 
     unsigned long getMuscleObjID() const { return muscleObjID; }
     const CK_OBJECT_HANDLE getHandle() const { return handle; }
