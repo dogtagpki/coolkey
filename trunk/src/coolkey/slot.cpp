@@ -164,7 +164,11 @@ SlotList::updateSlotList()
 	    throw PKCS11Exception(CKR_HOST_MEMORY);
 	memset(newSlots, 0, numReaders*sizeof(Slot*));
 
-        memcpy(newSlots, slots, sizeof(slots[0]) * numSlots);
+	/* keep coverity happy, even though slot == NULL implies that
+	 * numSlots == 0 */
+	if (slots) { 
+	     memcpy(newSlots, slots, sizeof(slots[0]) * numSlots);
+	}
 
 	for (unsigned int i=numSlots; i < numReaders; i++) {
 	    newSlots[i] = new
@@ -274,27 +278,10 @@ SlotList::updateReaderList()
 	}
     }
 
-    if (!readerStates) {
+    if (readerStates == NULL && readerNames != NULL) {
 	/* fresh Reader State list, just create it */
 	readerStates = CKYReader_CreateArray(readerNames, (CKYSize *)&numReaders);
 
-	/* if we have no readers, make sure we have at least one to keep things
-	 * happy */
-	if (readerStates == NULL &&
-			 CKYReaderNameList_GetCount(readerNames) == 0) {
-	    readerStates = (SCARD_READERSTATE *)
-				malloc(sizeof(SCARD_READERSTATE));
-	    if (readerStates) {
-		CKYReader_Init(readerStates);
-		status = CKYReader_SetReaderName(readerStates, "E-Gate 0 0");
-		if (status != CKYSUCCESS) {
- 		    CKYReader_DestroyArray(readerStates, 1);
-		    readerStates = NULL;
-		} else {
-		    numReaders = 1;
-		}
-	    }
-	}
 	CKYReaderNameList_Destroy(readerNames);
 	        
 	if (readerStates == NULL) {
@@ -303,6 +290,16 @@ SlotList::updateReaderList()
 	}
 	return;
     }
+
+    if (readerStates == NULL) {
+	/* if we didn't have any readers before and we did get new names, 
+	 * that is handled above. If we didn't have any readers before, and
+	 * we didn't get any names, there is nothing to update. blow out now.
+	 * This more efficient and makes coverity happy (since coverity doesn't
+	 * know numReaders and readerStates are linked). */
+	return;
+    }
+
 
     /* it would be tempting at this point just to see if we have more readers
      * then specified previously. The problem with this is it is possible that
@@ -326,11 +323,21 @@ SlotList::updateReaderList()
         }
  
         curReaderName =  CKYReader_GetReaderName(&readerStates[ri]); 
-        if(readerNameExistsInList(curReaderName,&readerNames)) {
-            CKYReader_SetKnownState(&readerStates[ri], knownState & ~SCARD_STATE_IGNORE); 
-                 
-        }
+        if(readerNames && readerNameExistsInList(curReaderName,&readerNames)) {
+            CKYReader_SetKnownState(&readerStates[ri], 
+		knownState & ~SCARD_STATE_IGNORE); 
+        } else {
+	    if (!(knownState & SCARD_STATE_UNAVAILABLE))
+		CKYReader_SetKnownState(&readerStates[ri], 
+		 knownState | SCARD_STATE_UNAVAILABLE | SCARD_STATE_CHANGED);
+	}
     } 
+
+    if (readerNames == NULL) {
+	/* OK we've marked everything unavailable, we clearly
+	 * aren't adding any readers, so we can blow out here */
+	return;
+    }
 
     const char *newReadersData[MAX_READER_DELTA];
     const char **newReaders = &newReadersData[0];
@@ -738,22 +745,43 @@ Slot::connectToToken()
 
     log->log("time connnect: Begin transaction %d ms\n", OSTimeNow() - time);
     status = PIVApplet_Select(conn, NULL);
-    if (status != CKYSUCCESS) {
-	goto piv_loser;
+    if (status = CKYSUCCESS) {
+	/* Card is a PIV card */
+	state |= PIV_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
+	isVersion1Key = 0;
+	needLogin = 1;
+	mCoolkey = 0;
+	mOldCAC = 0;
+	mCACLocalLogin = getPIVLoginType();
+	return;
     }
-    /* Card is a PIV card */
-    state |= PIV_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
-    isVersion1Key = 0;
-    needLogin = 1;
-    mCoolkey = 0;
-    mOldCAC = 0;
-    mCACLocalLogin = getPIVLoginType();
-    return;
-piv_loser:
     log->log("PIV Select failed 0x%x\n", status);
     status = CKYApplet_SelectCoolKeyManager(conn, NULL);
     if (status != CKYSUCCESS) {
-	goto coolkey_loser;
+	log->log("CoolKey Select failed 0x%x\n", status);
+	status = getCACAid();
+	if (status != CKYSUCCESS) {
+	    log->log("CAC Select failed 0x%x\n", status);
+	    if (status == CKYSCARDERR) {
+		log->log("Card Failure 0x%x\n",
+			CKYCardConnection_GetLastError(conn));
+		disconnect();
+	    }
+	    /* Card is a PIV card */
+	    state |= PIV_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
+	    isVersion1Key = 0;
+	    needLogin = 1;
+	    mCoolkey = 0;
+	    mOldCAC = 0;
+	    mCACLocalLogin = getPIVLoginType();
+	    return;
+	}
+	state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
+	isVersion1Key;
+	needLogin = 1;
+	mCoolkey = 0;
+	mCACLocalLogin = false;
+	return;
     }
     mCoolkey = 1;
     log->log("time connect: Select Applet %d ms\n", OSTimeNow() - time);
@@ -779,29 +807,6 @@ piv_loser:
     tokenFWVersion.major = lifeCycleV2.protocolMajorVersion;
     tokenFWVersion.minor = lifeCycleV2.protocolMinorVersion;
     return;
-coolkey_loser:
-    log->log("CoolKey Select failed 0x%x\n", status);
-    status = getCACAid();
-    if (status != CKYSUCCESS) {
-	goto cac_loser;
-    }
-    state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
-    /* skip the read of the cuid. We really don't need it and,
-     * the only way to get it from the cac is to reset it.
-     * other apps may be running now, so resetting the cac is a bit
-     * unfriendly */
-    isVersion1Key = 0;
-    needLogin = 1;
-    mCoolkey = 0;
-    mCACLocalLogin = false;
-    return;
-cac_loser:
-    log->log("CAC Select failed 0x%x\n", status);
-    if (status == CKYSCARDERR) {
-	log->log("Card Failure 0x%x\n",
-			CKYCardConnection_GetLastError(conn));
-	disconnect();
-    }
 }
     
 bool
@@ -1303,7 +1308,17 @@ SlotList::waitForSlotEvent(CK_FLAGS flag, CK_SLOT_ID_PTR slotp, CK_VOID_PTR res)
     bool found = FALSE;
     CKYStatus status;
     SCARD_READERSTATE *myReaderStates = NULL;
+    static SCARD_READERSTATE pnp ={ 0 };
     unsigned int myNumReaders = 0;
+
+    readerListLock.getLock();
+    if (pnp.szReader == 0) {
+	CKYReader_Init(&pnp);
+	pnp.szReader = "\\\\?PnP?\\Notification";
+    }
+    readerListLock.releaseLock();
+
+  
 #ifndef notdef
     do {
 	readerListLock.getLock();
@@ -1363,6 +1378,7 @@ SlotList::waitForSlotEvent(CK_FLAGS flag, CK_SLOT_ID_PTR slotp, CK_VOID_PTR res)
         #endif
     } while ((status == CKYSUCCESS) ||
        (CKYCardContext_GetLastError(context) == SCARD_E_TIMEOUT) ||
+       (CKYCardContext_GetLastError(context) == SCARD_E_UNKNOWN_READER) ||
        (CKYCardContext_GetLastError(context) == SCARD_E_READER_UNAVAILABLE) ||
        (CKYCardContext_GetLastError(context) == SCARD_E_NO_SERVICE) ||
        (CKYCardContext_GetLastError(context) == SCARD_E_SERVICE_STOPPED) );
@@ -1649,30 +1665,30 @@ Slot::addKeyObject(list<PKCS11Object>& objectList, const ListObjectInfo& info,
     const CKYBuffer *id;
 
     if (isCombined &&
-           ((objClass == CKO_PUBLIC_KEY) || (objClass == CKO_PRIVATE_KEY))) {
-        id = keyObj.getAttribute(CKA_ID);
-        if ((!id) || (CKYBuffer_Size(id) != 1)) {
-            throw PKCS11Exception(CKR_DEVICE_ERROR,
-                        "Missing or invalid CKA_ID value");
-        }
-        iter = find_if(objectList.begin(), objectList.end(),
-                        ObjectCertCKAIDMatch(CKYBuffer_GetChar(id,0)));
-        if ( iter == objectList.end() ) {
+		((objClass == CKO_PUBLIC_KEY) || (objClass == CKO_PRIVATE_KEY))) {
+	id = keyObj.getAttribute(CKA_ID);
+	if ((!id) || (CKYBuffer_Size(id) != 1)) {
+	    throw PKCS11Exception(CKR_DEVICE_ERROR,
+			"Missing or invalid CKA_ID value");
+	}
+	iter = find_if(objectList.begin(), objectList.end(),
+			ObjectCertCKAIDMatch(CKYBuffer_GetChar(id,0)));
+	if ( iter == objectList.end() ) {
             // We failed to find a cert with a matching CKA_ID. This
             // can happen if the cert is not present on the token, or
             // the der encoded cert stored on the token was corrupted.
-                throw PKCS11Exception(CKR_DEVICE_ERROR,
-                                         "Failed to find cert with matching CKA_ID value");
-        }
-        keyObj.completeKey(*iter);
+	    throw PKCS11Exception(CKR_DEVICE_ERROR,
+			"Failed to find cert with matching CKA_ID value");
+	}
+	keyObj.completeKey(*iter);
 
-        /* For now this is how we determine what type of key.
-           Also for now, allow only one or the other */
-        if ( keyObj.getKeyType() == PKCS11Object::ecc) {
-            mECC = true;
-        } else {
-            mECC = false;
-        }
+	/* For now this is how we determine what type of key.
+	   Also for now, allow only one or the other */
+	if ( keyObj.getKeyType() == PKCS11Object::ecc) {
+	    mECC = true;
+	} else {
+	    mECC = false;
+	}
        
     }
     objectList.push_back(keyObj);
@@ -2867,6 +2883,9 @@ Slot::loadCACCert(CKYByte instance)
     tokenObjects.push_back(privKey);
     tokenObjects.push_back(pubKey);
     tokenObjects.push_back(certObj);
+    if (pubKey.getKeyType() == PKCS11Object::ecc) {
+	mECC = 1;
+    }
 
     if (personName == NULL) {
 	const char *name = certObj.getName();
@@ -3436,7 +3455,7 @@ Slot::getAttributeValue(SessionHandleSuffix suffix,
     ObjectConstIter iter = find_if(tokenObjects.begin(), tokenObjects.end(),
         ObjectHandleMatch(hObject));
 
-    if ( iter == tokenObjects.end()) {
+    if (iter == tokenObjects.end()) {
         throw PKCS11Exception(CKR_OBJECT_HANDLE_INVALID);
     }
 
@@ -3955,7 +3974,8 @@ Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
   	}
 	try {
 	    params.padInput(&inputPad, &input);
-            performRSAOp(&output, &inputPad, keyNum, params.getDirection());
+            performRSAOp(&output, &inputPad, params.getKeySize(),
+						keyNum, params.getDirection());
 	    params.unpadOutput(result, &output);
 	    CKYBuffer_FreeData(&input);
 	    CKYBuffer_FreeData(&inputPad);
@@ -4041,7 +4061,7 @@ void Slot::signECC(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
             throw PKCS11Exception(CKR_HOST_MEMORY);
         }
         try {
-            performECCSignature(&output, &input, keyNum);
+            performECCSignature(&output, &input, params.getKeySize(), keyNum);
             params.unpadOutput(result, &output);
             CKYBuffer_FreeData(&input);
             CKYBuffer_FreeData(&output);
@@ -4063,7 +4083,7 @@ void Slot::signECC(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
 }
 
 void
-Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input, CKYByte keyNum)
+Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input, unsigned int keySize, CKYByte keyNum)
 {
 
     /* establish a transaction */
@@ -4079,8 +4099,18 @@ Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input, CKYByte key
     int loginAttempted = 0;
 
 retry:
+    if (state & PIV_CARD) {
+	status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 0, input, output, &result);
+    } else if (state & CAC_CARD) {
+	status = CACApplet_SignDecrypt(conn, input, output, &result);
+    } else {
+	status = CKYApplet_ComputeECCSignature(conn, keyNum, input, NULL, output, getNonce(), &result);
+    }
 
-    status = CKYApplet_ComputeECCSignature(conn, keyNum, input, NULL, output, getNonce(), &result);
+    if ((result == CKYISO_CONDITION_NOT_SATISFIED) ||
+		(result == CKYISO_SECURITY_NOT_SATISFIED)) {
+	result = (CKYStatus) CKYISO_UNAUTHORIZED;
+    }
 
     if (status != CKYSUCCESS) {
         if ( status == CKYSCARDERR ) {
@@ -4119,7 +4149,7 @@ retry:
 
 
 void
-Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input, 
+Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input, unsigned int keySize,
 					CKYByte keyNum, CKYByte direction)
 {
     if ( mECC ) {
@@ -4146,7 +4176,7 @@ Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input,
     int loginAttempted = 0;
 retry:
     if (state & PIV_CARD) {
-        status = PIVApplet_SignDecrypt(conn, pivKey, input, output, &result);
+        status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 0, input, output, &result);
     } else if (state & CAC_CARD) {
         status = CACApplet_SignDecrypt(conn, input, output, &result);
     } else {
@@ -4462,7 +4492,8 @@ void Slot::deriveECC(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
 
     if( CKYBuffer_Size(result) == 0 ) {
         try {
-            performECCKeyAgreement(deriveMech, &publicDataBuffer, &secretKeyBuffer, keyNum);
+            performECCKeyAgreement(deriveMech, &publicDataBuffer, &secretKeyBuffer,
+			keyNum, params.getKeySize());
             CK_OBJECT_HANDLE keyObjectHandle = generateUnusedObjectHandle();
             secret = createSecretKeyObject(keyObjectHandle, &secretKeyBuffer, pTemplate, ulAttributeCount);
         } catch(PKCS11Exception& e) {
@@ -4483,9 +4514,10 @@ void Slot::deriveECC(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
 }
 
 void
-Slot::performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech, CKYBuffer *publicDataBuffer, CKYBuffer *secretKeyBuffer, CKYByte keyNum)
+Slot::performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech, CKYBuffer *publicDataBuffer,
+		CKYBuffer *secretKeyBuffer, CKYByte keyNum, unsigned int keySize)
 {
-    if (!mECC || state & CAC_CARD || state & PIV_CARD ) {
+    if (!mECC) {
        throw PKCS11Exception(CKR_FUNCTION_NOT_SUPPORTED);
     }
 
@@ -4493,12 +4525,31 @@ Slot::performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech, CKYBuffer *publicData
     CKYStatus status = trans.begin(conn);
     if( status != CKYSUCCESS ) handleConnectionError();
 
+    if (state & GOV_CARD) {
+	selectCACApplet(keyNum, true);
+    } else {
+	selectApplet();
+    }
+
     CKYISOStatus result;
     int loginAttempted = 0;
 
 retry:
 
-    status = CKYApplet_ComputeECCKeyAgreement(conn, keyNum, publicDataBuffer , NULL, secretKeyBuffer, getNonce(), &result);
+    if (state & PIV_CARD) {
+	status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 1, publicDataBuffer,
+			secretKeyBuffer, & result);
+    } else if (state & CAC_CARD) {
+	status = CACApplet_SignDecrypt(conn, publicDataBuffer, secretKeyBuffer, &result);
+    } else {
+	status = CKYApplet_ComputeECCKeyAgreement(conn, keyNum, publicDataBuffer , NULL, secretKeyBuffer, getNonce(), &result);
+    }
+
+    /* map the ISO not logged in code to the coolkey one */
+    if ((result == CKYISO_CONDITION_NOT_SATISFIED) ||
+	 (result == CKYISO_SECURITY_NOT_SATISFIED)) {
+	result = CKYISO_UNAUTHORIZED;
+    }
 
     if (status != CKYSUCCESS) {
         if ( status == CKYSCARDERR ) {
@@ -4511,7 +4562,11 @@ retry:
         if (!isVersion1Key && !loginAttempted  &&
             (result == CKYISO_UNAUTHORIZED)) {
         try {
-            oldAttemptLogin();
+	    if (state & GOV_CARD) {
+		attemptCACLogin();
+	    } else {
+		oldAttemptLogin();
+	    }
         } catch(PKCS11Exception& ) {
               throw PKCS11Exception(CKR_DEVICE_ERROR);
         }

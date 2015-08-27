@@ -41,6 +41,7 @@ ckyBuffer_initBuffer(CKYBuffer *buf)
     buf->data = NULL;
     buf->size = 0;
     buf->len = 0;
+    buf->reserved = NULL; /* make coverity happy */
 } 
 
 /*
@@ -573,6 +574,7 @@ CKYAPDU_Init(CKYAPDU *apdu)
     assert(sizeof(CKYAPDU) == sizeof(CKYAPDUPublic));
 #endif
    ckyBuffer_initBuffer(&apdu->apduBuf);
+   apdu->reserved = NULL;
    return CKYBuffer_Resize(&apdu->apduBuf, CKYAPDU_MIN_LEN);
 }
 
@@ -583,6 +585,7 @@ CKYAPDU_InitFromData(CKYAPDU *apdu, const CKYByte *data, CKYSize len)
     assert(sizeof(CKYAPDU) == sizeof(CKYAPDUPublic));
 #endif
     ckyBuffer_initBuffer(&apdu->apduBuf);
+    apdu->reserved = NULL;
     if (len > CKYAPDU_MAX_DATA_LEN) {
 	return CKYDATATOOLONG;
     }

@@ -27,6 +27,7 @@
 
 #ifndef WINAPI
 #define WINAPI
+typedef SCARD_READERSTATE *LPSCARD_READERSTATE;
 #endif
 
 #ifndef SCARD_E_NO_READERS_AVAILABLE
@@ -866,6 +867,11 @@ CKYCardContext_Cancel(CKYCardContext *ctx)
     rv = ctx->scard->SCardCancel(ctx->context);
 
     if (rv != SCARD_S_SUCCESS) {
+	if ((rv == SCARD_E_NO_SERVICE) || (rv == SCARD_E_SERVICE_STOPPED)) {
+	    /* if we were stopped, don't reuse the old context, 
+	     * pcsc-lite hangs */
+	    ckyCardContext_release(ctx); 
+	} 
 	ctx->lastError = rv;
 	return CKYSCARDERR;
     }

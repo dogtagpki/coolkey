@@ -536,8 +536,9 @@ CKYStatus PIVApplet_Select(CKYCardConnection *conn, CKYISOStatus *apduRC);
 CKYStatus PIVApplet_GetCertificate(CKYCardConnection *conn, CKYBuffer *cert,
 				   int tag, CKYISOStatus *apduRC);
 CKYStatus PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
+				   unsigned int keySize, int derive,
                                    const CKYBuffer *data, CKYBuffer *result, 
-                                    CKYISOStatus *apduRC);
+                                   CKYISOStatus *apduRC);
 /*
  * There are 3 read commands:
  *  
