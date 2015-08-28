@@ -116,6 +116,7 @@ CKYStatus CKYCardConnection_ExchangeAPDU(CKYCardConnection *connection,
 CKYStatus CKYCardConnection_Connect(CKYCardConnection *connection, 
 					const char *readerName);
 CKYStatus CKYCardConnection_Disconnect(CKYCardConnection *connection);
+unsigned long CKYCardConnection_GetProtocol(const CKYCardConnection *conn);
 CKYBool CKYCardConnection_IsConnected(const CKYCardConnection *connection);
 CKYStatus CKYCardConnection_Reconnect(CKYCardConnection *connection);
 CKYStatus CKYCardConnection_GetStatus(CKYCardConnection *connection,

@@ -54,6 +54,11 @@ const CKYByte ATR2[] =
 {  0x3B, 0x6F, 0x00, 0xFF, 0x52, 0x53, 0x41, 0x53, 0x65, 0x63, 0x75, 0x72,
    0x49, 0x44, 0x28, 0x52, 0x29, 0x31, 0x30 };
 
+/* PKCS #15 AID */
+const CKYByte P15AID[] =
+{ 0xa0, 0, 0,  0, 0x63, 'P', 'K', 'C', 'S', '-', '1', '5'};
+
+
 
 /* ECC curve information
  *    Provide information for the limited set of curves supported by our smart card(s).
@@ -409,19 +414,29 @@ SlotList::updateReaderList()
 
 Slot::Slot(const char *readerName_, Log *log_, CKYCardContext* context_)
     : log(log_), readerName(NULL), personName(NULL), manufacturer(NULL),
+	tokenManufacturer(NULL),
 	slotInfoFound(false), context(context_), conn(NULL), state(UNKNOWN), 
 	isVersion1Key(false), needLogin(false), fullTokenName(false), 
-	mCoolkey(false), mOldCAC(false),mCACLocalLogin(false),
-	pivContainer(-1), pivKey(-1), mECC(false), 
+	mCoolkey(false), mOldCAC(false), mCACLocalLogin(false),
+	pivContainer(-1), pivKey(-1), mECC(false), p15aid(0), p15odfAddr(0),
+	p15tokenInfoAddr(0), p15Instance(0),
 #ifdef USE_SHMEM
 	shmem(readerName_),
 #endif
 	sessionHandleCounter(1), objectHandleCounter(1)
 {
+  int i; 
+
+  for (i=0; i < MAX_AUTH_USERS; i++) {
+    auth[i]=NULL;
+  }
 
   tokenFWVersion.major = 0;
   tokenFWVersion.minor = 0;
-
+  CKYBuffer_InitFromData(&p15AID, P15AID, sizeof(P15AID));
+  CKYBuffer_InitEmpty(&p15tokenInfo);
+  CKYBuffer_InitEmpty(&p15odf);
+  CKYBuffer_InitEmpty(&p15serialNumber);
 
   try {
     conn = CKYCardConnection_Create(context);
@@ -437,6 +452,8 @@ Slot::Slot(const char *readerName_, Log *log_, CKYCardContext* context_)
     loggedIn = false;
     pinCache.invalidate();
     pinCache.clearPin();
+    contextPinCache.invalidate();
+    contextPinCache.clearPin();
     //readSlotInfo();
     manufacturer = strdup("Unknown");
     if (!manufacturer) {
@@ -519,11 +536,22 @@ Slot::~Slot()
     if (manufacturer) {
 	free(manufacturer);
     }
+    if (tokenManufacturer) {
+	free(tokenManufacturer);
+    }
     CKYBuffer_FreeData(&nonce);
     CKYBuffer_FreeData(&cardATR);
     CKYBuffer_FreeData(&mCUID);
+    CKYBuffer_FreeData(&p15AID);
+    CKYBuffer_FreeData(&p15odf);
+    CKYBuffer_FreeData(&p15tokenInfo);
+    CKYBuffer_FreeData(&p15serialNumber);
     for (int i=0; i < MAX_CERT_SLOTS; i++) {
 	CKYBuffer_FreeData(&cardAID[i]);
+    }
+    for (int i=0; i < MAX_AUTH_USERS; i++) {
+	if (auth[i]) delete auth[i];
+	auth[i]=NULL;
     }
 }
 
@@ -641,8 +669,9 @@ Slot::getPIVLoginType(void)
     }
 done:
     CKYBuffer_FreeData(&buffer);
-    return true;
+    return local;
 }
+
 
 void
 Slot::connectToToken()
@@ -749,7 +778,7 @@ Slot::connectToToken()
 	/* Card is a PIV card */
 	state |= PIV_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
 	isVersion1Key = 0;
-	needLogin = 1;
+	needLogin = true;
 	mCoolkey = 0;
 	mOldCAC = 0;
 	mCACLocalLogin = getPIVLoginType();
@@ -762,23 +791,27 @@ Slot::connectToToken()
 	status = getCACAid();
 	if (status != CKYSUCCESS) {
 	    log->log("CAC Select failed 0x%x\n", status);
-	    if (status == CKYSCARDERR) {
-		log->log("Card Failure 0x%x\n",
+	    status = getP15Params();
+	    if (status != CKYSUCCESS) {
+		if (status == CKYSCARDERR) {
+		    log->log("Card Failure 0x%x\n",
 			CKYCardConnection_GetLastError(conn));
-		disconnect();
+		    disconnect();
+		}
+		/* Card is unknown */
+		return ;
 	    }
-	    /* Card is a PIV card */
-	    state |= PIV_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
+	    /* enable PKCS 15 */
+	    state |= P15_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
 	    isVersion1Key = 0;
-	    needLogin = 1;
+	    needLogin = true;
 	    mCoolkey = 0;
-	    mOldCAC = 0;
-	    mCACLocalLogin = getPIVLoginType();
+	    mCACLocalLogin = false;
 	    return;
 	}
 	state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
 	isVersion1Key;
-	needLogin = 1;
+	needLogin = true;
 	mCoolkey = 0;
 	mCACLocalLogin = false;
 	return;
@@ -849,6 +882,8 @@ Slot::invalidateLogin(bool hard)
     } else {
 	loggedIn = false;
 	pinCache.invalidate();
+	contextPinCache.invalidate();
+	contextPinCache.clearPin();
 	if (hard) {
 	    pinCache.clearPin();
 	}
@@ -956,6 +991,414 @@ Slot::getCACAid()
 done:
     CKYBuffer_FreeData(&tBuf);
     CKYBuffer_FreeData(&vBuf);
+    return status;
+}
+
+CKYStatus Slot::getP15Params()
+{
+    CKYStatus status = CKYSCARDERR;
+    int i;
+    CKYISOStatus apduRC;
+
+    /* read the EF(DIR) */  
+    status = CACApplet_SelectFile(conn, 0x2f00, &apduRC);
+    if (status == CKYSUCCESS) {
+	CKYBuffer record;
+
+	CKYBuffer_InitEmpty(&record);
+	/* dump it out */
+        for (i=1; i < 255; i++) {
+	    status = P15Applet_ReadRecord(conn, i, 0, P15_READ_P1, 255,
+			&record, &apduRC);
+	    if (status != CKYSUCCESS) {
+		log->log("EF(DIR) Read Record %d failed 0x%x apduRC=0x%x\n",
+							 i, status, apduRC);
+		break;
+	    }
+	}
+	CKYBuffer_FreeData(&record);
+	return CKYSCARDERR; /* don't yet support EF(DIR)*/
+
+    } else {
+	log->log("EF(DIR) Select failed 0x%x apduRC=0x%0x\n", status, apduRC);
+	p15aid = 0; /* use the default */
+	p15odfAddr=0x5031;
+	p15tokenInfoAddr=0x5032;
+    }
+   
+    status = CKYApplet_SelectFile(conn, &p15AID, &apduRC);
+    if (status != CKYSUCCESS) {
+	log->log("DF(PKCS-15) select failed 0x%x apduRC=0x%0x\n", status,
+				apduRC);
+	return status;
+    }
+    status = P15Applet_SelectFile(conn, p15tokenInfoAddr, &apduRC);
+    if (status != CKYSUCCESS) {
+	log->log("EF(TokenInfo) select failed 0x%x apduRC=0x%0x\n", status, 
+				apduRC);
+	return status;
+    }
+    /* dump it out */
+    CKYBuffer_Resize(&p15tokenInfo, 0);
+    status = P15Applet_ReadBinary(conn, 0, 0, 0, 0, &p15tokenInfo, &apduRC);
+    if (status != CKYSUCCESS) {
+	log->log("EF(TokenInfo) Read binary failed 0x%x apduRC=0x%x\n", status,
+				 apduRC);
+	    return status;
+    }
+    status = P15Applet_SelectFile(conn, p15odfAddr, &apduRC);
+    if (status != CKYSUCCESS) {
+	log->log("EF(ODF) select failed 0x%x apduRC=0x%0x\n", status,
+				apduRC);
+	return status;
+    }
+
+    CKYBuffer_Resize(&p15odf, 0);
+    status = P15Applet_ReadBinary(conn, 0, 0, 0, 0, &p15odf, &apduRC);
+    if (status != CKYSUCCESS) {
+	    log->log("EF(ODF) Read binary failed 0x%x apduRC=0x%x\n", status,
+				 apduRC);
+	    return status; 
+    }
+
+    return CKYSUCCESS;
+}
+
+CKYStatus
+Slot::readFromPath(const PK15ObjectPath &obj, CKYBuffer *file)
+{
+    CKYStatus status;
+    CKYISOStatus apduRC;
+    CKYSize bufSize;
+    CKYOffset index = obj.getIndex();
+    CKYSize length = obj.getLength();
+
+    CKYBuffer_Resize(file, 0);
+    status = selectPath(obj.getPath(), &apduRC);
+    if (status != CKYSUCCESS) {
+	return status;
+    }
+    status = P15Applet_ReadBinary(conn, index, 0, 0, 
+			(length >= 256)?0:length, file, &apduRC);
+    if (status != CKYSUCCESS) {
+	return status;
+    }
+
+    /* if we asked for a specific length and got it, or we asked for 
+     * an indeterminate length and got less than 256 bytes, then we 
+     * got everything. */
+    bufSize = CKYBuffer_Size(file);
+    if ((length && (bufSize >= length)) || ((length == 0) && (bufSize < 256))) {
+	/* we've already got it all */
+	return status;
+    }
+    if (bufSize < 0x82) {
+	/* make sure we have enough bytes to handle the worst case ANS.1
+         * mistake */
+	return CKYINVALIDDATA;
+    }
+    
+    if (length == 0) {
+	/* we don't yet know how long the length is, use the ASN.1 parser to
+         * find out. We lie to dataStart about actual size so that it won't
+         * fail since we know we don't have the whole buffer yet.*/
+	(void) dataStart(CKYBuffer_Data(file), 65535, &length, true);
+    }
+    if (length > 65535) {
+	return CKYINVALIDDATA;
+    }
+    while ((bufSize =CKYBuffer_Size(file)) < length) {
+	CKYSize tmpLength = length - bufSize;
+
+	if (tmpLength >= 256) tmpLength = 0;
+
+	status = P15Applet_ReadBinary(conn, (unsigned short)(index+bufSize),
+			 0, 0, tmpLength, file, &apduRC);
+	if (status != CKYSUCCESS) {
+	    return status;
+	}
+    }
+	
+    return CKYSUCCESS;
+}
+
+void
+Slot::parseEF_TokenInfo(void)
+{
+    DEREncodedTokenInfo derTokenInfo(&p15tokenInfo);
+    const CKYBuffer *serial=&derTokenInfo.serialNumber;
+
+    if (derTokenInfo.version >= 0) {
+	tokenFWVersion.major = derTokenInfo.version;
+	tokenFWVersion.minor = 0;
+    }
+
+    if (CKYSize(serial) != 0) {
+	CKYBuffer_Replace(&p15serialNumber, 0, CKYBuffer_Data(serial),
+						CKYBuffer_Size(serial));
+    }
+
+    if (derTokenInfo.manufacturer) {
+	if (tokenManufacturer) {
+	    free(tokenManufacturer);
+	    tokenManufacturer = NULL;
+	}
+	tokenManufacturer = derTokenInfo.manufacturer;
+	derTokenInfo.manufacturer = NULL; /* adopted */
+    }
+
+    if (derTokenInfo.tokenName) {
+	if (personName) {
+	    free(personName);
+	    personName = NULL;
+	}
+	personName = derTokenInfo.tokenName;
+	derTokenInfo.tokenName = NULL; /* adopted */
+	fullTokenName = true;
+    }
+    return;
+}
+
+void
+Slot::parseEF_ODF(void)
+{
+    const CKYByte *current = CKYBuffer_Data(&p15odf);
+    CKYSize size = CKYBuffer_Size(&p15odf);
+    CKYBuffer files;
+
+    CKYBuffer_InitEmpty(&files);
+
+    while (size > 0) {
+	const CKYByte *entry;
+	CKYSize entrySize;
+	CKYSize tagSize;
+	CKYByte type, type1;
+	PK15ObjectPath objPath;
+	bool skip;
+
+	type = current[0];
+	entry = dataStart(current, size, &entrySize, false);
+	if (entry == NULL) { break; }
+	tagSize = entry-current;
+	current += entrySize + tagSize;
+	size -= (entrySize + tagSize);
+
+	/* skip those entries we aren't going to parse */
+	skip = false;
+	switch (type) {
+	case 0xa2: skip=true; break; /* skip EF(PuKDF-trusted) */
+	case 0xa3: skip=true; break; /* skip EF(SKDF) */
+	case 0xa7: skip=true; break; /* skip EF(DODF) */
+	default: skip=true; break;
+	case 0xa0:        /* EF(PvKDF) */
+	case 0xa1:        /* EF(PuKDF) */
+	case 0xa4:        /* EF(CDF) */
+	case 0xa5:        /* EF(CDF-trusted) */
+	case 0xa6:        /* EF(CDF-useful) */
+	case 0xa8: break; /* EF(AODF) */
+ 	}
+	if (skip) continue;
+
+	type1 = entry[0];
+	/* unwrap */
+	entry = dataStart(entry, entrySize, &entrySize, false);
+	if (entry == NULL) continue;
+	if (type1 == ASN1_SEQUENCE) {
+	    objPath.setObjectPath(entry, entrySize);
+	    CKYBuffer_Resize(&files, 0);
+	    readFromPath(objPath, &files);
+	    entry = CKYBuffer_Data(&files);
+	    entrySize = CKYBuffer_Size(&files);
+	} else if (type1 != ASN1_CHOICE_0) {
+	    continue;
+	}
+	
+	switch (type) {
+	case 0xa0: parseEF_Directory(entry, entrySize, PK15PvKey); break;
+	case 0xa1: parseEF_Directory(entry, entrySize, PK15PuKey); break;
+	case 0xa4: parseEF_Directory(entry, entrySize, PK15Cert); break;
+	case 0xa5: parseEF_Directory(entry, entrySize, PK15Cert); break;
+	case 0xa6: parseEF_Directory(entry, entrySize, PK15Cert); break;
+	case 0xa8: parseEF_Directory(entry, entrySize, PK15AuthObj); break;
+	default: break;
+	}
+    }
+    CKYBuffer_FreeData(&files);
+    return;
+}
+
+
+class ObjectCertCKAIDMatch {
+  private:
+    const CKYBuffer *cka_id;
+  public:
+    ObjectCertCKAIDMatch(const CKYBuffer *cka_id_) : cka_id(cka_id_) {}
+    bool operator()(const PKCS11Object& obj) {
+	const CKYBuffer *id;
+        const CKYBuffer *objClass;
+	CK_OBJECT_CLASS certClass = CKO_CERTIFICATE;
+	objClass = obj.getAttribute(CKA_CLASS);
+        if (objClass == NULL || !CKYBuffer_DataIsEqual(objClass, 
+				(CKYByte *)&certClass, sizeof(certClass))) {
+	    return false;
+        }
+ 	id = obj.getAttribute(CKA_ID);
+        return (id != NULL && CKYBuffer_IsEqual(id,cka_id)) ? true : false;
+    }
+};
+
+class ObjectKeyCKAIDMatch {
+  private:
+    const CKYBuffer *cka_id;
+  public:
+    ObjectKeyCKAIDMatch(const CKYBuffer *cka_id_) : cka_id(cka_id_) {}
+    bool operator()(const PKCS11Object& obj) {
+	const CKYBuffer *id;
+        const CKYBuffer *objClass;
+	CK_OBJECT_CLASS keyClass = CKO_PRIVATE_KEY;
+	objClass = obj.getAttribute(CKA_CLASS);
+        if (objClass == NULL || !CKYBuffer_DataIsEqual(objClass, 
+				(CKYByte *)&keyClass, sizeof(keyClass))) {
+	    return false;
+        }
+ 	id = obj.getAttribute(CKA_ID);
+        return (id != NULL && CKYBuffer_IsEqual(id,cka_id)) ? true : false;
+    }
+};
+
+CKYStatus
+Slot::parseEF_Directory(const CKYByte *current, 
+					CKYSize size, PK15ObjectType type)
+{
+    CKYBuffer file;
+    CKYBuffer_InitEmpty(&file);
+    CKYStatus status;
+
+
+    while (size > 0) {
+	const CKYByte *entry;
+	CKYSize entrySize;
+
+	if (current[0] != ASN1_SEQUENCE) {
+	    /* no more */
+	    break;
+	}
+
+	entry = dataStart(current, size, &entrySize, true);
+	if (entry == NULL) { break; }
+	current += entrySize;
+	size -= entrySize;
+
+	do {
+	    PK15Object obj(PK15Instance(), type, entry, entrySize);
+
+	    /* if state failed, then there is something wrong with this
+	     * der, skip this object */
+	    if (obj.getState() == PK15StateInit) {
+		break;
+	    }
+	    status = CKYSUCCESS;
+	    while (obj.getState() != PK15StateComplete) {
+	        CKYBuffer_Resize(&file, 0);
+	        readFromPath(obj.getObjectPath(), &file);
+		status = obj.completeObject(CKYBuffer_Data(&file), 
+						CKYBuffer_Size(&file));
+		if (status != CKYSUCCESS) {
+		    break;
+		}
+	    }
+	    if (status != CKYSUCCESS) {
+		break;
+	    }
+	    assert(obj.getState() == PK15StateComplete);
+	    /* handle type specific per object fixups */
+	    switch (type) {
+	    case PK15AuthObj:
+	    /* if we're an auth object, squirrel us away for future use */
+		if (obj.isSO()) {
+		    if (auth[CKU_SO] != 0) {
+			auth[CKU_SO] = new PK15Object(obj);
+		    }
+		} else if (auth[CKU_USER] == NULL) {
+		    auth[CKU_USER] = new PK15Object(obj);
+		} else if (auth[CKU_CONTEXT_SPECIFIC] == NULL) {
+		    ObjectIter iter;
+		    const CKYBuffer *authid = obj.getPinAuthId();
+
+		    /* these should put on the individual keys */
+		    auth[CKU_CONTEXT_SPECIFIC] = new PK15Object(obj);
+
+		    for( iter = tokenObjects.begin(); 
+			 iter != tokenObjects.end(); ++iter) {
+			if( CKYBuffer_IsEqual(iter->getAuthId(),authid)) {
+			    iter->setAttributeBool(CKA_ALWAYS_AUTHENTICATE,
+						   TRUE);
+			}
+		    }
+		}
+		/* drop unkown */
+		break;
+	    case PK15PvKey:
+		/* does the cert already exist? */
+		{
+		    ObjectConstIter iter;
+		    const CKYBuffer *id;
+
+		    id = obj.getAttribute(CKA_ID);
+		    if ((!id) || (CKYBuffer_Size(id) != 1)) {
+			break;
+		    }
+		    iter = find_if(tokenObjects.begin(), tokenObjects.end(),
+                        ObjectCertCKAIDMatch(id));
+			
+		    if ( iter != tokenObjects.end() ) {
+			obj.completeKey(*iter);
+		    }
+		}
+		break;
+	    case PK15Cert:
+		/* does a corresponding key already exist? */
+		{
+		    ObjectIter iter;
+		    const CKYBuffer *id;
+
+		    id = obj.getAttribute(CKA_ID);
+		    if ((!id) || (CKYBuffer_Size(id) != 1)) {
+			break;
+		    }
+		    iter = find_if(tokenObjects.begin(), tokenObjects.end(),
+                        ObjectKeyCKAIDMatch(id));
+			
+		    if ( iter != tokenObjects.end() ) {
+			iter->completeKey(obj);
+		    }
+		}
+		break;
+	    case PK15PuKey:
+		break;
+	    }
+    	    tokenObjects.push_back(obj);
+  	} while ( false );
+    }
+    CKYBuffer_FreeData(&file);
+    return CKYSUCCESS;
+}
+
+
+CKYStatus
+Slot::selectPath(const CKYBuffer *path, CKYISOStatus  *apduRC)
+{
+    CKYSize size = CKYBuffer_Size(path);
+    CKYStatus status = CKYINVALIDARGS;
+    CKYOffset pos;
+
+    for (pos=0; pos < size; pos +=2) {
+	unsigned short ef = CKYBuffer_GetShort(path, pos);
+	status = P15Applet_SelectFile(conn, ef, apduRC);
+	if (status != CKYSUCCESS) {
+		break;
+	}
+    }
     return status;
 }
 
@@ -1140,7 +1583,19 @@ void
 Slot::makeSerialString(char *serialNumber, int maxSize,
 						 const unsigned char *cuid)
 {
+    CKYSize ssize = CKYBuffer_Size(&p15serialNumber);
     memset(serialNumber, ' ', maxSize);
+
+    if (ssize != 0) {
+	CKYSize i;
+	ssize = MIN((CKYSize)maxSize/2, ssize);
+	for (i=0; i < ssize; i++) {
+	   CKYByte c = CKYBuffer_GetChar(&p15serialNumber, i);
+	   serialNumber[2*i] = hex((c >> 4) & 0xf);
+	   serialNumber[2*i+1] = hex(c & 0xf);
+	}
+    }
+	    
 
     // otherwise we use the eepromSerialNumber as a hex value 
     if (cuid) {
@@ -1212,7 +1667,8 @@ struct _manList {
 static const struct _manList  manList[] = {
         { 0x4090, "Axalto" },
         { 0x2050, "Oberthur" },
-        { 0x4780, "RSA" }
+        { 0x4780, "RSA" },
+        { 0x534e, "SafeNet" }
 };
 
 static int manListSize = sizeof(manList)/sizeof(manList[0]);
@@ -1221,8 +1677,15 @@ void
 Slot::makeManufacturerString(char *man, int maxSize, const unsigned char *cuid)
 {
     char *cp = man;
+    int manLen;
     memset(man, ' ', maxSize);
 
+    if (tokenManufacturer) {
+	manLen = strlen(tokenManufacturer);
+	memcpy(man, tokenManufacturer, MIN(manLen, maxSize));
+        // UTF8 Truncate fixup! don't drop halfway through a UTF8 character 
+        return;
+    }
     if (!cuid) {
 	return;
     }
@@ -1599,26 +2062,6 @@ class KeyNumMatch {
     }
 };
 
-class ObjectCertCKAIDMatch {
-  private:
-    CKYByte cka_id;
-  public:
-    ObjectCertCKAIDMatch(CKYByte cka_id_) : cka_id(cka_id_) {}
-    bool operator()(const PKCS11Object& obj) {
-	const CKYBuffer *id;
-        const CKYBuffer *objClass;
-	CK_OBJECT_CLASS certClass = CKO_CERTIFICATE;
-	objClass = obj.getAttribute(CKA_CLASS);
-        if (objClass == NULL || !CKYBuffer_DataIsEqual(objClass, 
-				(CKYByte *)&certClass, sizeof(certClass))) {
-	    return false;
-        }
- 	id = obj.getAttribute(CKA_ID);
-        return (id != NULL && CKYBuffer_DataIsEqual(id,&cka_id, 1))
-						 ? true : false;
-    }
-};
-
 CK_OBJECT_HANDLE
 Slot::generateUnusedObjectHandle()
 {
@@ -1672,7 +2115,7 @@ Slot::addKeyObject(list<PKCS11Object>& objectList, const ListObjectInfo& info,
 			"Missing or invalid CKA_ID value");
 	}
 	iter = find_if(objectList.begin(), objectList.end(),
-			ObjectCertCKAIDMatch(CKYBuffer_GetChar(id,0)));
+			ObjectCertCKAIDMatch(id));
 	if ( iter == objectList.end() ) {
             // We failed to find a cert with a matching CKA_ID. This
             // can happen if the cert is not present on the token, or
@@ -1724,6 +2167,11 @@ Slot::unloadObjects()
     free(personName);
     personName = NULL;
     fullTokenName = false;
+    if (tokenManufacturer) {
+	free(tokenManufacturer);
+	tokenManufacturer = NULL;
+    }
+    CKYBuffer_Resize(&p15serialNumber,0);
 }
 
 #ifdef USE_SHMEM
@@ -2922,6 +3370,17 @@ Slot::loadObjects()
 	loadReaderObject();
 	return;
     }
+    if (state & P15_CARD) {
+	parseEF_TokenInfo();
+	parseEF_ODF();
+	if (auth[CKU_USER] != NULL) {
+	    /* set need login */
+	    needLogin = true;
+	}
+	status = trans.end();
+	loadReaderObject();
+	return;
+    }
 
     selectApplet();
     log->log("time load object: Select Applet (again) %d ms\n",
@@ -3089,15 +3548,15 @@ Slot::getSessionInfo(SessionHandleSuffix handleSuffix,
 }
 
 void
-SlotList::login(CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin,
-    CK_ULONG ulPinLen)
+SlotList::login(CK_SESSION_HANDLE hSession, CK_USER_TYPE user,
+    CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
 {
     CK_SLOT_ID slotID;
     SessionHandleSuffix suffix;
 
     decomposeSessionHandle(hSession, slotID, suffix);
 
-    slots[slotIDToIndex(slotID)]->login(suffix, pPin, ulPinLen);
+    slots[slotIDToIndex(slotID)]->login(suffix, user, pPin, ulPinLen);
 }
 
 void
@@ -3147,8 +3606,8 @@ Slot::isLoggedIn()
 }
 
 void
-Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
-    CK_ULONG ulPinLen)
+Slot::login(SessionHandleSuffix handleSuffix, CK_USER_TYPE user,
+    CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
 {
     refreshTokenState();
 
@@ -3157,10 +3616,23 @@ Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
             "Slot::login\n", (unsigned long) handleSuffix);
         throw PKCS11Exception(CKR_SESSION_HANDLE_INVALID);
     }
+    /* only support CKU_USER for CAC, PIV, and coolkey... CKU_USER and
+     * CKU_CONTEX_SPECIFIC for P15Card */
+    if (user != CKU_USER) {
+	if ((user != CKU_CONTEXT_SPECIFIC) || ((state & P15_CARD) == 0)) {
+	    throw PKCS11Exception(CKR_USER_TYPE_INVALID);
+	}
+    }
+
 
     if (!isVersion1Key) {
-	pinCache.invalidate();
-	pinCache.set((const char *)pPin, ulPinLen);
+	if (user == CKU_USER) {
+	    pinCache.invalidate();
+	    pinCache.set((const char *)pPin, ulPinLen);
+	} else { 
+	    contextPinCache.invalidate();
+	    contextPinCache.set((const char *)pPin, ulPinLen);
+	}
     } else if (nonceValid) {
 	throw PKCS11Exception(CKR_USER_ALREADY_LOGGED_IN);
     }
@@ -3171,17 +3643,83 @@ Slot::login(SessionHandleSuffix handleSuffix, CK_UTF8CHAR_PTR pPin,
 
     if (state & GOV_CARD) {
 	selectCACApplet(0, true);
-    } else {
+    } else if ((state & P15_CARD)== 0) {
+	/* p15 does the select in attemptLogin */
 	selectApplet();
     }
 
     if (isVersion1Key) {
-	attemptLogin((const char *)pPin);
-    } else if (state & GOV_CARD) {
+	attemptCoolKeyLogin((const char *)pPin);
+    } else  {
+	attemptLogin(user, false);
+    }
+}
+
+void
+Slot::attemptLogin(CK_USER_TYPE user, bool flushPin) {
+    if (state & GOV_CARD) {
 	attemptCACLogin();
+    } else if (state & P15_CARD) {
+	attemptP15Login(user);
     } else {
 	oldAttemptLogin();
     }
+    if (flushPin && (user == CKU_CONTEXT_SPECIFIC)) {
+	contextPinCache.clearPin();
+    }
+}
+void dump(const char *label, const CKYBuffer *buf);
+
+void
+Slot::attemptP15Login(CK_USER_TYPE user)
+{
+    PinCache *pinCachePtr  = userPinCache(user);
+
+    if (user == CKU_USER) {
+	loggedIn = false;
+    }
+    pinCachePtr->invalidate();
+
+    CKYStatus status;
+    CKYISOStatus result;
+
+    if ((user >= MAX_AUTH_USERS) || (auth[user] == NULL)) {
+	throw PKCS11Exception(CKR_USER_TYPE_INVALID,
+			"No PKCS #15 auth object for user %d\n", user);
+    }
+
+    status = selectPath(auth[user]->getObjectPath().getPath(), &result);
+    if( status == CKYSCARDERR )  {
+	handleConnectionError();
+    }
+    if (status != CKYSUCCESS) {
+	throw PKCS11Exception(CKR_DEVICE_ERROR, "Applet select return 0x%04x",
+								result);
+    }
+
+    status = P15Applet_VerifyPIN(conn, 
+		(const char *)CKYBuffer_Data(pinCachePtr->get()), 
+		auth[user]->getPinInfo(), &result);
+    if( status == CKYSCARDERR ) {
+	handleConnectionError();
+    }
+    switch( result ) {
+      case CKYISO_SUCCESS:
+        break;
+      case 0x6983:
+	pinCachePtr->clearPin();
+        throw PKCS11Exception(CKR_PIN_LOCKED);
+      default:
+	pinCachePtr->clearPin();
+	if ((result & 0xff00) == 0x6300) {
+            throw PKCS11Exception(CKR_PIN_INCORRECT);
+	}
+        throw PKCS11Exception(CKR_DEVICE_ERROR, "Applet returned 0x%04x", 
+								result);
+    }
+    pinCachePtr->validate();
+    if (user == CKU_USER)
+	loggedIn = true;
 }
 
 void
@@ -3218,6 +3756,7 @@ Slot::attemptCACLogin()
     loggedIn = true;
 }
 
+
 void
 Slot::oldAttemptLogin()
 {
@@ -3252,7 +3791,7 @@ Slot::oldAttemptLogin()
 
 // should already be in a transaction, and applet selected
 void
-Slot::attemptLogin(const char *pin)
+Slot::attemptCoolKeyLogin(const char *pin)
 {
     CKYStatus status;
     CKYISOStatus result;
@@ -3328,7 +3867,7 @@ Slot::logout(SessionHandleSuffix suffix)
         throw PKCS11Exception(CKR_SESSION_HANDLE_INVALID);
     }
 
-    if (state & GOV_CARD) {
+    if (state & (GOV_CARD|P15_CARD)) {
 	CACLogout();
 	return;
     }
@@ -3567,31 +4106,26 @@ Slot::ensureValidSession(SessionHandleSuffix suffix)
 // from 0-9.
 //
 CKYByte
-Slot::objectHandleToKeyNum(CK_OBJECT_HANDLE hKey)
+Slot::objectToKeyNum(const PKCS11Object *key)
 {
-    ObjectConstIter iter = find_if(tokenObjects.begin(), tokenObjects.end(),
-        ObjectHandleMatch(hKey));
+    unsigned long id = key->getMuscleObjID();
 
-    if( iter == tokenObjects.end() ) {
-        // no such object
+    if( getObjectClass(id) != 'k' ) {
         throw PKCS11Exception(CKR_KEY_HANDLE_INVALID);
     }
-
-    if( getObjectClass(iter->getMuscleObjID()) != 'k' ) {
-        throw PKCS11Exception(CKR_KEY_HANDLE_INVALID);
-    }
-    unsigned short keyNum = getObjectIndex(iter->getMuscleObjID());
+    unsigned short keyNum = getObjectIndex(id);
     if( keyNum > 9 ) {
         throw PKCS11Exception(CKR_KEY_HANDLE_INVALID);
     }
     return keyNum & 0xFF;
 }
 
-PKCS11Object::KeyType
-Slot::getKeyTypeFromHandle(CK_OBJECT_HANDLE hKey)
+PKCS11Object *
+Slot::getKeyFromHandle(CK_OBJECT_HANDLE hKey)
 {
     ObjectConstIter iter = find_if(tokenObjects.begin(), tokenObjects.end(),
         ObjectHandleMatch(hKey));
+    PKCS11Object &obj = (PKCS11Object &)*iter;
 
     if( iter == tokenObjects.end() ) {
          throw PKCS11Exception(CKR_KEY_HANDLE_INVALID);
@@ -3601,7 +4135,7 @@ Slot::getKeyTypeFromHandle(CK_OBJECT_HANDLE hKey)
         throw PKCS11Exception(CKR_KEY_HANDLE_INVALID);
     }
 
-    return iter->getKeyType();
+    return &obj;
 }
 
 void
@@ -3614,9 +4148,7 @@ Slot::signInit(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
         throw PKCS11Exception(CKR_SESSION_HANDLE_INVALID);
     }
 
-    PKCS11Object::KeyType  keyType = getKeyTypeFromHandle(hKey);
-
-    session->signatureState.initialize(objectHandleToKeyNum(hKey), keyType);
+    session->signatureState.initialize(getKeyFromHandle(hKey));
 }
 
 void
@@ -3629,9 +4161,7 @@ Slot::decryptInit(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
         throw PKCS11Exception(CKR_SESSION_HANDLE_INVALID);
     }
 
-    PKCS11Object::KeyType keyType = getKeyTypeFromHandle(hKey);
-
-    session->decryptionState.initialize(objectHandleToKeyNum(hKey), keyType);
+    session->decryptionState.initialize(getKeyFromHandle(hKey));
 }
 
 /**
@@ -3901,7 +4431,7 @@ Slot::sign(SessionHandleSuffix suffix, CK_BYTE_PTR pData,
 
     CryptOpState sigState = dummyParams.getOpState(*session);
 
-    PKCS11Object::KeyType keyType = sigState.keyType;
+    PKCS11Object::KeyType keyType = sigState.key->getKeyType();
    
     if ( keyType == PKCS11Object::unknown) {
         throw PKCS11Exception(CKR_DATA_INVALID);
@@ -3948,9 +4478,9 @@ Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
     }
     CryptOpState& opState = params.getOpState(*session);
     CKYBuffer *result = &opState.result;
-    CKYByte keyNum = opState.keyNum;
+    PKCS11Object  *key = opState.key;
 
-    unsigned int keySize = getRSAKeySize(keyNum);
+    unsigned int keySize = getRSAKeySize(key);
 
     if(keySize != CryptParams::DEFAULT_KEY_SIZE)
         params.setKeySize(keySize);
@@ -3974,8 +4504,8 @@ Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
   	}
 	try {
 	    params.padInput(&inputPad, &input);
-            performRSAOp(&output, &inputPad, params.getKeySize(),
-						keyNum, params.getDirection());
+            performRSAOp(&output, &inputPad, params.getKeySize(), key,
+							params.getDirection());
 	    params.unpadOutput(result, &output);
 	    CKYBuffer_FreeData(&input);
 	    CKYBuffer_FreeData(&inputPad);
@@ -4038,9 +4568,9 @@ void Slot::signECC(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
     }
     CryptOpState& opState = params.getOpState(*session);
     CKYBuffer *result = &opState.result;
-    CKYByte keyNum = opState.keyNum;
+    PKCS11Object  *key = opState.key;
 
-    unsigned int keySize = getECCKeySize(keyNum);
+    unsigned int keySize = getECCKeySize(key);
 
     if(keySize != CryptParams::ECC_DEFAULT_KEY_SIZE)
         params.setKeySize(keySize);
@@ -4061,7 +4591,7 @@ void Slot::signECC(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
             throw PKCS11Exception(CKR_HOST_MEMORY);
         }
         try {
-            performECCSignature(&output, &input, params.getKeySize(), keyNum);
+            performECCSignature(&output, &input, params.getKeySize(), key);
             params.unpadOutput(result, &output);
             CKYBuffer_FreeData(&input);
             CKYBuffer_FreeData(&output);
@@ -4083,7 +4613,26 @@ void Slot::signECC(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
 }
 
 void
-Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input, unsigned int keySize, CKYByte keyNum)
+Slot::selectKey(const PKCS11Object *key, bool retry)
+{
+    /* P15 cards need to be reselected on retry because P15 must select
+     * on authentication. PIV, CAC and Coolkeys do not */
+    if (retry && ((state & GOV_CARD) || ((state & P15_CARD) == 0))) {
+	return;
+    }
+    if (state & GOV_CARD) {
+	selectCACApplet(objectToKeyNum(key), true);
+    } else if (state & P15_CARD) {
+	selectPath(key->getObjectPath().getPath(), NULL);
+    } else {
+	selectApplet();
+    }
+    return;
+}
+
+void
+Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input, 
+				unsigned int keySize, const PKCS11Object *key)
 {
 
     /* establish a transaction */
@@ -4096,15 +4645,22 @@ Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input, unsigned in
     }
 
     CKYISOStatus result;
-    int loginAttempted = 0;
+    bool loginAttempted = false;
 
 retry:
+    selectKey(key, loginAttempted);
+
     if (state & PIV_CARD) {
-	status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 0, input, output, &result);
+	status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 0, 
+					input, output, &result);
     } else if (state & CAC_CARD) {
 	status = CACApplet_SignDecrypt(conn, input, output, &result);
+    } else if (state & P15_CARD) {
+	status = P15Applet_SignDecrypt(conn, key->getKeyRef(), keySize/8,
+				CKY_DIR_ENCRYPT, input, output, &result);
     } else {
-	status = CKYApplet_ComputeECCSignature(conn, keyNum, input, NULL, output, getNonce(), &result);
+	status = CKYApplet_ComputeECCSignature(conn, objectToKeyNum(key), 
+					input, NULL, output, getNonce(), &result);
     }
 
     if ((result == CKYISO_CONDITION_NOT_SATISFIED) ||
@@ -4120,15 +4676,16 @@ retry:
         if (result == CKYISO_DATA_INVALID) {
             throw PKCS11Exception(CKR_DATA_INVALID);
         }
-        /* version0 keys could be logged out in the middle by someone else,
-           reauthenticate... This code can go away when we depricate.
-           version0 applets.
-        */
+        /* keys could be logged out in the middle by someone else,
+         *  reauthenticate... coolkey version 1 bypasses this issue by
+         *  allowing multiple applications separate login states at once.
+         */
         if (!isVersion1Key && !loginAttempted  &&
+		    userPinCache(key->getUser())->isValid() &&
                     (result == CKYISO_UNAUTHORIZED)) {
             /* try to reauthenticate  */
             try {
-                oldAttemptLogin();
+		attemptLogin(key->getUser(), true);
             } catch(PKCS11Exception& ) {
                 /* attemptLogin can throw things like CKR_PIN_INCORRECT
                   that don't make sense from a crypto operation. This is
@@ -4149,8 +4706,9 @@ retry:
 
 
 void
-Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input, unsigned int keySize,
-					CKYByte keyNum, CKYByte direction)
+Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input, 
+		unsigned int keySize, const PKCS11Object *key, 
+		CKYByte direction)
 {
     if ( mECC ) {
         throw PKCS11Exception(CKR_FUNCTION_NOT_SUPPORTED);
@@ -4162,26 +4720,25 @@ Slot::performRSAOp(CKYBuffer *output, const CKYBuffer *input, unsigned int keySi
     Transaction trans;
     CKYStatus status = trans.begin(conn);
     if( status != CKYSUCCESS ) handleConnectionError();
-
-    //
-    // select the applet
-    //
-    if (state & GOV_CARD) {
-	selectCACApplet(keyNum, true);
-    } else {
-	selectApplet();
-    }
-
     CKYISOStatus result;
-    int loginAttempted = 0;
+    bool loginAttempted = false;
+
 retry:
+    selectKey(key, loginAttempted);
+
+
     if (state & PIV_CARD) {
-        status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 0, input, output, &result);
+        status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 0, 
+				input, output, &result);
     } else if (state & CAC_CARD) {
         status = CACApplet_SignDecrypt(conn, input, output, &result);
+    } else if (state & P15_CARD) {
+	status = P15Applet_SignDecrypt(conn, key->getKeyRef(), keySize/8,
+				direction, input, output, &result);
     } else {
-        status = CKYApplet_ComputeCrypt(conn, keyNum, CKY_RSA_NO_PAD, direction,
-		input, NULL, output, getNonce(), &result);
+        status = CKYApplet_ComputeCrypt(conn, objectToKeyNum(key), 
+		CKY_RSA_NO_PAD, direction, input, NULL, output, 
+		getNonce(), &result);
     } 
 
     /* map the ISO not logged in code to the coolkey one */
@@ -4200,15 +4757,12 @@ retry:
 	// version0 keys could be logged out in the middle by someone else,
 	// reauthenticate... This code can go away when we depricate.
         // version0 applets.
-	if (!isVersion1Key && !loginAttempted  && pinCache.isValid() &&
+	if (!isVersion1Key && !loginAttempted  && 
+				userPinCache(key->getUser())->isValid() &&
 					(result == CKYISO_UNAUTHORIZED)) {
 	    // try to reauthenticate 
 	    try {
-		if (state & GOV_CARD) {
-		    attemptCACLogin();
-		} else {
-		    oldAttemptLogin();
-		}
+		attemptLogin(key->getUser(), true);
 	    } catch(PKCS11Exception& ) {
 		// attemptLogin can throw things like CKR_PIN_INCORRECT
 		// that don't make sense from a crypto operation. This is
@@ -4228,7 +4782,7 @@ void
 Slot::seedRandom(SessionHandleSuffix suffix, CK_BYTE_PTR pData,
         CK_ULONG ulDataLen)
 {
-    if (state & GOV_CARD) {
+    if (state & (GOV_CARD|P15_CARD)) {
 	/* should throw unsupported */
 	throw PKCS11Exception(CKR_DEVICE_ERROR);
     }
@@ -4280,7 +4834,7 @@ void
 Slot::generateRandom(SessionHandleSuffix suffix, const CK_BYTE_PTR pData,
         CK_ULONG ulDataLen)
 {
-    if (state & GOV_CARD) {
+    if (state & (GOV_CARD|P15_CARD)) {
 	/* should throw unsupported */
 	throw PKCS11Exception(CKR_DEVICE_ERROR);
     }
@@ -4314,61 +4868,44 @@ Slot::generateRandom(SessionHandleSuffix suffix, const CK_BYTE_PTR pData,
 
 #define MAX_NUM_KEYS 8
 unsigned int
-Slot::getRSAKeySize(CKYByte keyNum)
+Slot::getRSAKeySize(PKCS11Object *key)
 {
     unsigned int keySize = CryptParams::DEFAULT_KEY_SIZE;
     int modSize = 0;
 
-    if(keyNum >= MAX_NUM_KEYS) {
-        return keySize;
+    modSize = key->getKeySize();
+    if (modSize != 0) {
+	return modSize;
     }
 
-    ObjectConstIter iter;
-    iter = find_if(tokenObjects.begin(), tokenObjects.end(),
-        KeyNumMatch(keyNum,*this));
-
-    if( iter == tokenObjects.end() ) {
-        return keySize;
-    }
-
-    CKYBuffer const *modulus = iter->getAttribute(CKA_MODULUS);
+    CKYBuffer const *modulus = key->getAttribute(CKA_MODULUS);
 
     if(modulus) {
         modSize = CKYBuffer_Size(modulus);
         if(CKYBuffer_GetChar(modulus,0) == 0x0) {
             modSize--;
         }
-        if(modSize > 0)
+        if(modSize > 0) {
             keySize = modSize * 8;
+	    key->setKeySize(keySize);
+	}
     }
 
     return keySize;
 }
 
 unsigned int
-Slot::getECCKeySize(CKYByte keyNum)
-{
-    return calcECCKeySize(keyNum);
-} 
-
-unsigned int
-Slot::calcECCKeySize(CKYByte keyNum)
+Slot::getECCKeySize(PKCS11Object *key)
 {
     unsigned int keySize = CryptParams::ECC_DEFAULT_KEY_SIZE;
+    unsigned int objKeySize = 0;
 
-    if(keyNum >= MAX_NUM_KEYS) {
-        return keySize;
+    objKeySize = key->getKeySize();
+    if (objKeySize != 0) {
+	return objKeySize;
     }
 
-    ObjectConstIter iter;
-    iter = find_if(tokenObjects.begin(), tokenObjects.end(),
-        KeyNumMatch(keyNum,*this));
-
-    if( iter == tokenObjects.end() ) {
-        return keySize;
-    }
-
-    CKYBuffer const *eccParams = iter->getAttribute(CKA_EC_PARAMS);
+    CKYBuffer const *eccParams = key->getAttribute(CKA_EC_PARAMS);
 
     if (eccParams == NULL) {
         return keySize;
@@ -4407,6 +4944,7 @@ Slot::calcECCKeySize(CKYByte keyNum)
 
         if ( match == 1 ) {
             keySize =  curveBytesNamePair[i].length;
+	    key->setKeySize(keySize);
             return keySize;
         }
 
@@ -4426,10 +4964,9 @@ Slot::derive(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
     ECCKeyAgreementParams params(CryptParams::ECC_DEFAULT_KEY_SIZE);
     SessionIter session = findSession(suffix);
 
-    PKCS11Object::KeyType keyType = getKeyTypeFromHandle(hBaseKey);
-
-    session->keyAgreementState.initialize(objectHandleToKeyNum(hBaseKey), keyType);
-    deriveECC(suffix, pMechanism, hBaseKey, pTemplate, ulAttributeCount, phKey, params);
+    session->keyAgreementState.initialize(getKeyFromHandle(hBaseKey));
+    deriveECC(suffix, pMechanism, hBaseKey, pTemplate, ulAttributeCount, 
+		phKey, params);
 
 }
 
@@ -4465,9 +5002,8 @@ void Slot::deriveECC(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
 
     CryptOpState& opState = params.getOpState(*session);
     CKYBuffer *result = &opState.result;
-    CKYByte keyNum = opState.keyNum;
 
-    unsigned int keySize = getECCKeySize(keyNum);
+    unsigned int keySize = getECCKeySize(opState.key);
 
     if(keySize != CryptParams::ECC_DEFAULT_KEY_SIZE)
         params.setKeySize(keySize);
@@ -4492,10 +5028,11 @@ void Slot::deriveECC(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
 
     if( CKYBuffer_Size(result) == 0 ) {
         try {
-            performECCKeyAgreement(deriveMech, &publicDataBuffer, &secretKeyBuffer,
-			keyNum, params.getKeySize());
+            performECCKeyAgreement(deriveMech, &publicDataBuffer, 
+			&secretKeyBuffer, opState.key, params.getKeySize());
             CK_OBJECT_HANDLE keyObjectHandle = generateUnusedObjectHandle();
-            secret = createSecretKeyObject(keyObjectHandle, &secretKeyBuffer, pTemplate, ulAttributeCount);
+            secret = createSecretKeyObject(keyObjectHandle, &secretKeyBuffer, 
+			pTemplate, ulAttributeCount);
         } catch(PKCS11Exception& e) {
             CKYBuffer_FreeData(&secretKeyBuffer);
             CKYBuffer_FreeData(&publicDataBuffer);
@@ -4507,15 +5044,15 @@ void Slot::deriveECC(SessionHandleSuffix suffix, CK_MECHANISM_PTR pMechanism,
    CKYBuffer_FreeData(&publicDataBuffer);
 
    if ( secret ) {
-
        *phKey = secret->getHandle();
         delete secret;
    }
 }
 
 void
-Slot::performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech, CKYBuffer *publicDataBuffer,
-		CKYBuffer *secretKeyBuffer, CKYByte keyNum, unsigned int keySize)
+Slot::performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech,
+		CKYBuffer *publicDataBuffer, CKYBuffer *secretKeyBuffer,
+		const PKCS11Object *key, unsigned int keySize)
 {
     if (!mECC) {
        throw PKCS11Exception(CKR_FUNCTION_NOT_SUPPORTED);
@@ -4525,24 +5062,27 @@ Slot::performECCKeyAgreement(CK_MECHANISM_TYPE deriveMech, CKYBuffer *publicData
     CKYStatus status = trans.begin(conn);
     if( status != CKYSUCCESS ) handleConnectionError();
 
-    if (state & GOV_CARD) {
-	selectCACApplet(keyNum, true);
-    } else {
-	selectApplet();
-    }
 
     CKYISOStatus result;
-    int loginAttempted = 0;
+    bool loginAttempted = false;
 
 retry:
+    selectKey(key, loginAttempted);
 
     if (state & PIV_CARD) {
-	status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 1, publicDataBuffer,
-			secretKeyBuffer, & result);
+	status = PIVApplet_SignDecrypt(conn, pivKey, keySize/8, 1, 
+			publicDataBuffer, secretKeyBuffer, &result);
     } else if (state & CAC_CARD) {
-	status = CACApplet_SignDecrypt(conn, publicDataBuffer, secretKeyBuffer, &result);
+	status = CACApplet_SignDecrypt(conn, publicDataBuffer, 
+			secretKeyBuffer, &result);
+    } else if (state & P15_CARD) {
+	/* status = P15Applet_SignDecrypt(conn, key->getKeyRef(), keySize/8,
+  				publicDataBuffer, secretKeyBuffer, &result); */
+	throw PKCS11Exception(CKR_FUNCTION_NOT_SUPPORTED);
     } else {
-	status = CKYApplet_ComputeECCKeyAgreement(conn, keyNum, publicDataBuffer , NULL, secretKeyBuffer, getNonce(), &result);
+	status = CKYApplet_ComputeECCKeyAgreement(conn, objectToKeyNum(key),
+			publicDataBuffer , NULL, secretKeyBuffer, 
+			getNonce(), &result);
     }
 
     /* map the ISO not logged in code to the coolkey one */
@@ -4560,13 +5100,10 @@ retry:
             throw PKCS11Exception(CKR_DATA_INVALID);
         }
         if (!isVersion1Key && !loginAttempted  &&
-            (result == CKYISO_UNAUTHORIZED)) {
+				userPinCache(key->getUser())->isValid() &&
+					(result == CKYISO_UNAUTHORIZED)) {
         try {
-	    if (state & GOV_CARD) {
-		attemptCACLogin();
-	    } else {
-		oldAttemptLogin();
-	    }
+	    attemptLogin(key->getUser(), true);
         } catch(PKCS11Exception& ) {
               throw PKCS11Exception(CKR_DEVICE_ERROR);
         }

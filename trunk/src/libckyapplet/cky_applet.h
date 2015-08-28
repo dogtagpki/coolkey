@@ -204,6 +204,7 @@ typedef struct _CKYAppletArgReadObject {
     CKYByte         size;
 } CKYAppletArgReadObject;
 
+
 typedef struct _CKYAppletArgWriteObject {
     unsigned long objectID;
     CKYOffset     offset;
@@ -261,6 +262,39 @@ typedef struct _PIVAppletRespSignDecrypt {
      PIVUnwrapState tag_2;
      CKYBuffer  *buf;
 } PIVAppletRespSignDecrypt;
+
+typedef struct _P15AppletArgReadRecord {
+    CKYByte	    record;
+    CKYByte         short_ef;
+    CKYByte         flags;
+    CKYByte         size;
+} P15AppletArgReadRecord;
+
+typedef struct _P15AppletArgReadBinary {
+    unsigned short    offset;
+    CKYByte         short_ef;
+    CKYByte         flags;
+    CKYByte         size;
+} P15AppletArgReadBinary;
+
+typedef struct _P15AppletArgVerifyPIN {
+    const  CKYBuffer *pinVal;
+    CKYByte pinRef;
+} P15AppletArgVerifyPIN;
+
+typedef struct _P15AppletArgManageSecurityEnvironment {
+    CKYByte p1;
+    CKYByte p2;
+    CKYByte keyRef;
+}
+ P15AppletArgManageSecurityEnvironment;
+
+typedef struct _P15AppletArgPerformSecurityOperation {
+    CKYByte dir;
+    int     chain;
+    CKYSize retLen;
+    const CKYBuffer *data;
+} P15AppletArgPerformSecurityOperation;
 
 /* fills in an APDU from a structure -- form of all the generic factories*/
 typedef CKYStatus (*CKYAppletFactory)(CKYAPDU *apdu, const void *param);
@@ -514,6 +548,7 @@ CKYStatus CACApplet_ReadFile(CKYCardConnection *conn, CKYByte type,
 CKYStatus CACApplet_SelectFile(CKYCardConnection *conn, unsigned short ef,
 			     CKYISOStatus *apduRC);
 
+
 /* must happen with PKI applet selected */
 CKYStatus CACApplet_SignDecrypt(CKYCardConnection *conn, const CKYBuffer *data,
 		CKYBuffer *result, CKYISOStatus *apduRC);
@@ -539,6 +574,26 @@ CKYStatus PIVApplet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
 				   unsigned int keySize, int derive,
                                    const CKYBuffer *data, CKYBuffer *result, 
                                    CKYISOStatus *apduRC);
+
+/* PKCS Commands 15 */
+CKYStatus P15Applet_SelectFile(CKYCardConnection *conn, unsigned short ef,
+			     CKYISOStatus *apduRC);
+CKYStatus P15Applet_SelectRootFile(CKYCardConnection *conn, unsigned short ef,
+			     CKYISOStatus *apduRC);
+CKYStatus P15Applet_ReadRecord(CKYCardConnection *conn, CKYByte record, 
+		CKYByte short_ef, CKYByte flags, CKYByte size, CKYBuffer *data, 
+		CKYISOStatus *apduRC);
+CKYStatus P15Applet_ReadBinary(CKYCardConnection *conn, unsigned short offset, 
+		CKYByte short_ef, CKYByte flags, CKYByte size, CKYBuffer *data, 
+		CKYISOStatus *apduRC);
+CKYStatus P15Applet_VerifyPIN(CKYCardConnection *conn, const char *pin, 
+			const P15PinInfo *pinInfo, CKYISOStatus *apduRC);
+
+CKYStatus P15Applet_SignDecrypt(CKYCardConnection *conn, CKYByte key,
+				   unsigned int keySize, CKYByte direction,
+                                   const CKYBuffer *data, CKYBuffer *result, 
+                                   CKYISOStatus *apduRC);
+
 /*
  * There are 3 read commands:
  *  
