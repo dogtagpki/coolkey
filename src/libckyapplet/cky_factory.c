@@ -29,7 +29,7 @@ CKYAPDUFactory_SelectFile(CKYAPDU *apdu, CKYByte p1, CKYByte p2,
 			  const CKYBuffer *AID)
 {
     CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
-    CKYAPDU_SetINS(apdu, CKY_INS_SELECT_FILE);
+    CKYAPDU_SetINS(apdu, ISO_INS_SELECT_FILE);
     CKYAPDU_SetP1(apdu, p1);
     CKYAPDU_SetP2(apdu, p2);
     return CKYAPDU_SetSendDataBuffer(apdu, AID);
@@ -40,7 +40,7 @@ CKYAPDUFactory_SelectCardManager(CKYAPDU *apdu)
 {
     CKYByte c = 0;
     CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
-    CKYAPDU_SetINS(apdu, CKY_INS_SELECT_FILE);
+    CKYAPDU_SetINS(apdu, ISO_INS_SELECT_FILE);
     CKYAPDU_SetP1(apdu, 0x04);
     CKYAPDU_SetP2(apdu, 0x00);
     /* I can't find the documentation for this, but if you pass an empty
@@ -57,7 +57,7 @@ CKYStatus
 CKYAPDUFactory_GetCPLCData(CKYAPDU *apdu)
 {
     CKYAPDU_SetCLA(apdu, CKY_CLASS_GLOBAL_PLATFORM);
-    CKYAPDU_SetINS(apdu, CKY_INS_GET_DATA);
+    CKYAPDU_SetINS(apdu, ISO_INS_GET_DATA);
     CKYAPDU_SetP1(apdu, 0x9f);
     CKYAPDU_SetP2(apdu, 0x7f);
     return CKYAPDU_SetReceiveLen(apdu, CKY_SIZE_GET_CPLCDATA);
@@ -707,6 +707,7 @@ fail:
     CKYBuffer_FreeData(&buf);
     return ret;
 }
+
 CKYStatus
 CACAPDUFactory_GetProperties(CKYAPDU *apdu)
 {
@@ -715,37 +716,6 @@ CACAPDUFactory_GetProperties(CKYAPDU *apdu)
     CKYAPDU_SetP1(apdu, 0x00);
     CKYAPDU_SetP2(apdu, 0x00);
     return CKYAPDU_SetReceiveLen(apdu, CAC_SIZE_GET_PROPERTIES);
-}
-
-CKYStatus
-CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, CKYByte keyRef, const char *pin)
-{
-    CKYStatus ret;
-    CKYSize size;
-
-    CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
-    CKYAPDU_SetINS(apdu, CAC_INS_VERIFY_PIN);
-    CKYAPDU_SetP1(apdu, 0x00);
-    CKYAPDU_SetP2(apdu, keyRef);
-    /* no pin, send an empty buffer */
-    if (!pin) {
-    	return CKYAPDU_SetReceiveLen(apdu, 0);
-    }
-
-    /* all CAC pins are 8 bytes exactly. If to long, truncate it */
-    size = strlen(pin);
-    if (size > 8) {
-	size = 8;
-    }
-    ret = CKYAPDU_SetSendData(apdu, (unsigned char *) pin, size);
-    /* if too short, pad it */
-    if ((ret == CKYSUCCESS) && (size < 8)) {
-	static const unsigned char pad[]= { 0xff , 0xff, 0xff ,0xff, 
-				   0xff, 0xff, 0xff, 0xff };
-	return CKYAPDU_AppendSendData(apdu, pad, 8-size);
-    }
-    return ret;
-
 }
 
 CKYStatus
@@ -806,4 +776,110 @@ fail:
     CKYBuffer_FreeData(&buf);
     return ret;
 }
+
+CKYStatus
+P15APDUFactory_VerifyPIN(CKYAPDU *apdu, CKYByte keyRef, const CKYBuffer *pin)
+{
+    CKYStatus ret;
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, CAC_INS_VERIFY_PIN);
+    CKYAPDU_SetP1(apdu, 0x00);
+    CKYAPDU_SetP2(apdu, keyRef);
+    /* no pin, send an empty buffer */
+    if (CKYBuffer_Size(pin) == 0) {
+    	return CKYAPDU_SetReceiveLen(apdu, 0);
+    }
+
+    /* all CAC pins are 8 bytes exactly. If to long, truncate it */
+    ret = CKYAPDU_SetSendDataBuffer(apdu, pin);
+    return ret;
+
+}
+
+CKYStatus
+P15APDUFactory_ReadRecord(CKYAPDU *apdu, CKYByte record, CKYByte short_ef, 
+					CKYByte flags, CKYByte count)
+{
+    CKYByte control;
+
+    control = (short_ef << 3) & 0xf8;
+    control |= flags & 0x07;
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, ISO_INS_READ_RECORD);
+    CKYAPDU_SetP1(apdu, record);
+    CKYAPDU_SetP2(apdu, control);
+    return CKYAPDU_SetReceiveLen(apdu, count);
+}
+
+CKYStatus
+P15APDUFactory_ReadBinary(CKYAPDU *apdu, unsigned short offset, 
+			CKYByte short_ef, CKYByte flags, CKYByte count)
+{
+    CKYByte p1 = 0,p2 = 0;
+    unsigned short max_offset = 0;
+
+    if (flags & P15_USE_SHORT_EF) {
+	max_offset = 0xff;
+	p1 = P15_USE_SHORT_EF | (short_ef & 0x7);
+	p2 = offset & 0xff;
+    } else {
+	max_offset = 0x7fff;
+	p1 = (offset >> 8) & 0x7f;
+	p2 = offset & 0xff;
+    }
+    if (offset > max_offset) {
+	return CKYINVALIDARGS;
+    }
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, ISO_INS_READ_BINARY);
+    CKYAPDU_SetP1(apdu, p1);
+    CKYAPDU_SetP2(apdu, p2);
+    return CKYAPDU_SetReceiveLen(apdu, count);
+}
+
+CKYStatus
+P15APDUFactory_ManageSecurityEnvironment(CKYAPDU *apdu, CKYByte p1, CKYByte p2,
+					CKYByte keyRef)
+{
+    CKYByte param[3];
+
+    CKYAPDU_SetCLA(apdu, CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, ISO_INS_MANAGE_SECURITY_ENVIRONMENT);
+    CKYAPDU_SetP1(apdu, p1);
+    CKYAPDU_SetP2(apdu, p2);
+    param[0] = 0x83;
+    param[1] = 1;
+    param[2] = keyRef;
+    return CKYAPDU_SetSendData(apdu, param, sizeof param);
+}
+
+CKYStatus
+P15APDUFactory_PerformSecurityOperation(CKYAPDU *apdu, CKYByte dir,
+			int chain, CKYSize retLen, const CKYBuffer *data)
+{
+    CKYByte p1,p2;
+    CKYStatus ret;
+
+    CKYAPDU_SetCLA(apdu, chain ? CKY_CLASS_ISO7816_CHAIN :
+				  CKY_CLASS_ISO7816);
+    CKYAPDU_SetINS(apdu, ISO_INS_PERFORM_SECURITY_OPERATION);
+    if (dir == CKY_DIR_DECRYPT) {
+	p1 = ISO_PSO_DECRYPT_P1;
+	p2 = ISO_PSO_DECRYPT_P2;
+    } else {
+	p1 = ISO_PSO_SIGN_P1;
+	p2 = ISO_PSO_SIGN_P2;
+    }
+    CKYAPDU_SetP1(apdu, p1);
+    CKYAPDU_SetP2(apdu, p2);
+    ret =  CKYAPDU_SetSendDataBuffer(apdu, data);
+    if (ret == CKYSUCCESS && (chain == 0) && retLen != 0) {
+	ret = CKYAPDU_AppendReceiveLength(apdu, retLen);
+    }
+    return ret;
+}
+
 

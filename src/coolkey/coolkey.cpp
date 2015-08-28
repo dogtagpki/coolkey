@@ -599,13 +599,10 @@ C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
     }
     try {
         log->log("C_Login called\n");
-        if( userType != CKU_USER ) {
-            throw PKCS11Exception(CKR_USER_TYPE_INVALID);
-        }
         if( pPin == NULL ) {
             throw PKCS11Exception(CKR_ARGUMENTS_BAD);
         }
-        slotList->login(hSession, pPin, ulPinLen);
+        slotList->login(hSession, userType, pPin, ulPinLen);
         return CKR_OK;
     } catch(PKCS11Exception &e) {
         e.log(log);

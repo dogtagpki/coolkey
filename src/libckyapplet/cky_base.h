@@ -32,6 +32,8 @@ typedef unsigned char CKYByte;
 /* Bool type */
 typedef unsigned char CKYBool;
 
+typedef unsigned long CKYBitFlags;
+
 #define CKYBUFFER_PUBLIC \
     unsigned long reserved1;\
     unsigned long reserved2;\
@@ -93,6 +95,8 @@ typedef enum {
 			 * (command) sent. ADPUIOStatus has more info on
 			 * why the APDU failed */
     CKYINVALIDARGS,      /* Caller passed in bad args */
+    CKYINVALIDDATA,	/* Data supplied was invalid */
+    CKYUNSUPPORTED,	/* Requested Operation or feature is not supported */
 } CKYStatus;
 
 /*
@@ -107,11 +111,55 @@ typedef enum {
 #define CKY_LE_OFFSET	4
 
 #define CKYAPDU_MAX_DATA_LEN	256
+#define CKYAPDU_MAX_T1_DATA_LEN	65536
 #define CKYAPDU_MIN_LEN		4
 #define CKYAPDU_HEADER_LEN	5
 #define CKYAPDU_MAX_LEN		(CKYAPDU_HEADER_LEN+CKYAPDU_MAX_DATA_LEN)
 #define CKY_MAX_ATR_LEN		32
 #define CKY_OUTRAGEOUS_MALLOC_SIZE (1024*1024)
+
+#define P15FlagsPrivate           0x00000001
+#define P15FlagsModifiable        0x00000002
+
+#define P15UsageEncrypt           0x00000001
+#define P15UsageDecrypt           0x00000002
+#define P15UsageSign              0x00000004
+#define P15UsageSignRecover       0x00000008
+#define P15UsageWrap              0x00000010
+#define P15UsageUnwrap            0x00000020
+#define P15UsageVerify            0x00000040
+#define P15UsageVerifyRecover     0x00000080
+#define P15UsageDerive            0x00000100
+#define P15UsageNonRepudiation    0x00000200
+
+#define P15AccessSensitive        0x00000001
+#define P15AccessExtractable      0x00000002
+#define P15AccessAlwaysSenstive   0x00000004
+#define P15AccessNeverExtractable 0x00000008
+#define P15AccessLocal            0x00000010
+
+#define P15PinCaseSensitive       0x00000001
+#define P15PinLocal               0x00000002
+#define P15PinChangeDisabled      0x00000004
+#define P15PinUnblockDisabled     0x00000008
+#define P15PinInitialized         0x00000010
+#define P15PinNeedsPadding        0x00000020
+#define P15PinUnblockingPin       0x00000040
+#define P15PinSOPin               0x00000080
+#define P15PinDisableAllowed      0x00000100
+
+typedef enum {P15PinBCD=0, P15PinASCIINum=1, P15PinUTF8=2} P15PinType;
+
+typedef struct _P15PinInfo {
+    CKYBitFlags   pinFlags;
+    P15PinType    pinType;
+    CKYByte       minLength;
+    CKYByte       storedLength;
+    unsigned long maxLength;
+    CKYByte       pinRef;
+    CKYByte       padChar;
+} P15PinInfo;
+     
 
 /*
  * allow direct inclusion in C++ files 
@@ -278,7 +326,11 @@ CKYStatus CKYAPDU_AppendSendDataBuffer(CKYAPDU *apdu, const CKYBuffer *buf);
 /* set Le in the APDU header to the amount of bytes expected to be
  * returned. */
 CKYStatus CKYAPDU_SetReceiveLen(CKYAPDU *apdu, CKYByte recvlen);
+CKYStatus CKYAPDU_SetShortReceiveLen(CKYAPDU *apdu, unsigned short recvlen);
+CKYStatus CKYAPDU_SetReceiveLength(CKYAPDU *apdu, CKYSize recvlen);
 CKYStatus CKYAPDU_AppendReceiveLen(CKYAPDU *apdu, CKYByte recvlen);
+CKYStatus CKYAPDU_AppendShortReceiveLen(CKYAPDU *apdu, unsigned short recvlen);
+CKYStatus CKYAPDU_AppendReceiveLength(CKYAPDU *apdu, CKYSize recvlen);
 
 /* set the parent loadmodule name */
 void CKY_SetName(const char *name);

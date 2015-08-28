@@ -19,6 +19,7 @@
 
 #include <stdio.h>
 #include "cky_applet.h"
+#include <string.h>
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -48,6 +49,12 @@ CKYStatus
 CACAppletFactory_SelectFile(CKYAPDU *apdu, const void *param)
 {
     return CKYAPDUFactory_SelectFile(apdu, 2, 12, (const CKYBuffer *)param);
+}
+
+CKYStatus
+P15AppletFactory_SelectFile(CKYAPDU *apdu, const void *param)
+{
+    return CKYAPDUFactory_SelectFile(apdu, 0, 0, (const CKYBuffer *)param);
 }
 
 CKYStatus
@@ -269,17 +276,10 @@ PIVAppletFactory_SignDecrypt(CKYAPDU *apdu, const void *param)
 }
 
 CKYStatus
-CACAppletFactory_VerifyPIN(CKYAPDU *apdu, const void *param)
+P15AppletFactory_VerifyPIN(CKYAPDU *apdu, const void *param)
 {
-    const char *pin=(const char *)param;
-    return CACAPDUFactory_VerifyPIN(apdu, CAC_LOGIN_GLOBAL, pin);
-}
-
-CKYStatus
-PIVAppletFactory_VerifyPIN(CKYAPDU *apdu, const void *param)
-{
-    const char *pin=(const char *)param;
-    return CACAPDUFactory_VerifyPIN(apdu, PIV_LOGIN_LOCAL, pin);
+    const P15AppletArgVerifyPIN *vps = (const P15AppletArgVerifyPIN *)param;
+    return P15APDUFactory_VerifyPIN(apdu, vps->pinRef, vps->pinVal);
 }
 
 CKYStatus
@@ -323,6 +323,39 @@ CKYAppletFactory_LogoutAllV0(CKYAPDU *apdu, const void *param)
    return CKYAPDU_SetSendData(apdu, data, sizeof(data));
 }
 
+CKYStatus
+P15AppletFactory_ReadRecord(CKYAPDU *apdu, const void *param)
+{
+    const P15AppletArgReadRecord *rrs = (const P15AppletArgReadRecord *)param;
+    return P15APDUFactory_ReadRecord(apdu, rrs->record,
+					rrs->short_ef, rrs->flags, rrs->size);
+}
+
+CKYStatus
+P15AppletFactory_ReadBinary(CKYAPDU *apdu, const void *param)
+{
+    const P15AppletArgReadBinary *res = (const P15AppletArgReadBinary *)param;
+    return P15APDUFactory_ReadBinary(apdu, res->offset,
+					res->short_ef, res->flags, res->size);
+}
+
+CKYStatus
+P15AppletFactory_ManageSecurityEnvironment(CKYAPDU *apdu, const void *param)
+{
+    const P15AppletArgManageSecurityEnvironment *mse = 
+		(const P15AppletArgManageSecurityEnvironment *)param;
+    return P15APDUFactory_ManageSecurityEnvironment(apdu, mse->p1, 
+						mse->p2, mse->keyRef);
+}
+
+CKYStatus
+P15AppletFactory_PerformSecurityOperation(CKYAPDU *apdu, const void *param)
+{
+    const P15AppletArgPerformSecurityOperation *pso = 
+		(const P15AppletArgPerformSecurityOperation *)param;
+    return P15APDUFactory_PerformSecurityOperation(apdu, pso->dir, pso->chain,
+						   pso->retLen, pso->data);
+}
 /*****************************************************************
  *
  * Generic Fill routines used by several calls in common
@@ -976,9 +1009,6 @@ CKYApplet_ComputeECCSignature(CKYCardConnection *conn, CKYByte keyNumber,
     const CKYBuffer *data, CKYBuffer *sig,
     CKYBuffer *result, const CKYBuffer *nonce, CKYISOStatus *apduRC)
 {
-    int         use2APDUs = 0;
-    int         use_dl_object =  0; 
-    short       dataSize = 0;
     CKYStatus ret = CKYAPDUFAIL;
     CKYAppletArgComputeECCSignature ccd;
     CKYBuffer    empty;
@@ -1053,6 +1083,11 @@ done:
     return ret;
 }
 
+const P15PinInfo CACPinInfo = 
+   { P15PinInitialized|P15PinNeedsPadding, P15PinUTF8, 0, 8, 8, 0, 0xff };
+const P15PinInfo PIVPinInfo = 
+   { P15PinLocal|P15PinInitialized|P15PinNeedsPadding, 
+					   P15PinUTF8, 0, 8, 8, 0, 0xff };
 /*
  * do a CAC VerifyPIN
  */
@@ -1060,23 +1095,8 @@ CKYStatus
 CACApplet_VerifyPIN(CKYCardConnection *conn, const char *pin, int local,
 		    CKYISOStatus *apduRC)
 {
-    CKYStatus ret;
-    CKYISOStatus status;
-    if (apduRC == NULL) {
-	apduRC = &status;
-    }
-
-    ret = CKYApplet_HandleAPDU(conn, local ? PIVAppletFactory_VerifyPIN :
-			    CACAppletFactory_VerifyPIN, pin, NULL, 
-			    0, CKYAppletFill_Null, 
-			    NULL, apduRC);
-    /* it's unfortunate that the same code that means 'more data to follow' for
-     * GetCertificate also means, auth failure, you only have N more attempts
-     * left in the verify PIN call */
-    if ((*apduRC & CKYISO_MORE_MASK) == CKYISO_MORE) {
-	ret = CKYAPDUFAIL;
-    }
-    return ret;
+    return P15Applet_VerifyPIN(conn, pin, 
+				local ? &PIVPinInfo: &CACPinInfo, apduRC);
 }
 
 
@@ -1165,6 +1185,217 @@ CACApplet_ReadFile(CKYCardConnection *conn, CKYByte type, CKYBuffer *buffer,
  	}
     }
     return ret;
+}
+
+/*
+ *  Select a EF
+ */
+CKYStatus
+P15Applet_SelectFile(CKYCardConnection *conn, unsigned short ef,
+						 CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYBuffer efBuf;
+    CKYBuffer_InitEmpty(&efBuf);
+    CKYBuffer_AppendShort(&efBuf, ef);
+    ret = CKYApplet_HandleAPDU(conn, P15AppletFactory_SelectFile, &efBuf,
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
+    CKYBuffer_FreeData(&efBuf);
+    return ret;
+}
+
+CKYStatus
+P15Applet_SelectRootFile(CKYCardConnection *conn, unsigned short ef,
+						 CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYBuffer efBuf;
+    CKYBuffer_InitEmpty(&efBuf);
+    CKYBuffer_AppendShort(&efBuf, ef);
+    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, &efBuf,
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
+    CKYBuffer_FreeData(&efBuf);
+    return ret;
+}
+
+CKYStatus
+P15Applet_VerifyPIN(CKYCardConnection *conn, const char *pin, 
+			const P15PinInfo *pinInfo, CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYISOStatus status;
+    CKYSize size;
+    CKYBuffer encodedPin;
+    P15AppletArgVerifyPIN vps;
+
+    CKYBuffer_InitEmpty(&encodedPin);
+
+    if (apduRC == NULL) {
+	apduRC = &status;
+    }
+
+    size = strlen(pin);
+    if (pinInfo->pinFlags & P15PinNeedsPadding) {
+	if (size > pinInfo->storedLength) {
+	    size = pinInfo->storedLength;
+	}
+	ret=CKYBuffer_Reserve(&encodedPin, pinInfo->storedLength);
+	if (ret != CKYSUCCESS) { goto fail; }
+    }
+    /* This is where we would do upcase processing for the case insensitive 
+     * flag. It's also where we would do mapping for bcd pins */
+    ret = CKYBuffer_Replace(&encodedPin, 0, (const CKYByte *)pin, size);
+    if (ret != CKYSUCCESS) { goto fail; }
+    if (pinInfo->pinFlags & P15PinNeedsPadding) {
+	int i; 
+	int padSize = pinInfo->storedLength - size;
+	for (i=0; i < padSize; i++) {
+	    CKYBuffer_AppendChar(&encodedPin, pinInfo->padChar);
+	}
+    }
+
+    vps.pinRef = pinInfo->pinRef | 
+     ((pinInfo->pinFlags & P15PinLocal) ? ISO_LOGIN_LOCAL : ISO_LOGIN_GLOBAL);
+    vps.pinVal = &encodedPin;
+    ret = CKYApplet_HandleAPDU(conn, P15AppletFactory_VerifyPIN, &vps, NULL, 
+			    0, CKYAppletFill_Null, 
+			    NULL, apduRC);
+    /* it's unfortunate that the same code that means 'more data to follow' for
+     * GetCertificate also means, auth failure, you only have N more attempts
+     * left in the verify PIN call */
+    if ((*apduRC & CKYISO_MORE_MASK) == CKYISO_MORE) {
+	ret = CKYAPDUFAIL;
+    }
+fail:
+    CKYBuffer_FreeData(&encodedPin);
+    return ret;
+}
+
+
+/*
+ * Read Record
+ */
+CKYStatus
+P15Applet_ReadRecord(CKYCardConnection *conn, CKYByte record, CKYByte short_ef,
+		CKYByte flags, CKYByte size, CKYBuffer *data, CKYISOStatus *apduRC)
+{
+    P15AppletArgReadRecord rrd;
+
+    rrd.record = record;
+    rrd.short_ef = short_ef;
+    rrd.flags = flags;
+    rrd.size = size;
+    return CKYApplet_HandleAPDU(conn, P15AppletFactory_ReadRecord, &rrd, NULL,
+	CKY_SIZE_UNKNOWN, CKYAppletFill_ReplaceBuffer, data, apduRC);
+}
+
+static CKYStatus
+P15Applet_ManageSecurityEnvironment(CKYCardConnection *conn, CKYByte key,
+				 CKYByte direction, CKYByte p1, 
+				 CKYISOStatus *apduRC)
+{
+    P15AppletArgManageSecurityEnvironment mse;
+
+    mse.p1 = p1; /* this appears to be where most cards disagree */
+    mse.p2 = (direction == CKY_DIR_DECRYPT) ? ISO_MSE_KEA : ISO_MSE_SIGN;
+    mse.keyRef = key; /* should be CKYBuffer in the future? */
+    return CKYApplet_HandleAPDU(conn, 
+		P15AppletFactory_ManageSecurityEnvironment, &mse, NULL,
+		CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
+}
+
+CKYStatus
+P15Applet_SignDecrypt(CKYCardConnection *conn, CKYByte key, 
+		unsigned int keySize, CKYByte direction, 
+		const CKYBuffer *data, CKYBuffer *result, CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    P15AppletArgPerformSecurityOperation pso;
+    CKYSize dataSize = CKYBuffer_Size(data);
+    CKYOffset offset = 0;
+    CKYBuffer tmp;
+    int length = dataSize;
+    int appendLength = length;
+    int hasPad = 0;
+
+    /* Hack, lie and say we are always doing encipherment */
+    direction = CKY_DIR_DECRYPT;
+    CKYBuffer_Resize(result,0);
+    /*
+     * first set the security environment
+     */
+    ret = P15Applet_ManageSecurityEnvironment(conn, key, direction, 
+			ISO_MSE_SET|ISO_MSE_QUAL_COMPUTE, apduRC);
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+
+    CKYBuffer_InitEmpty(&tmp);
+
+    pso.data = &tmp;
+    pso.dir = direction;
+    if (direction == CKY_DIR_DECRYPT) {
+	length++;
+	CKYBuffer_AppendChar(&tmp, 0x00); /* pad byte */
+	hasPad = 1;
+    }
+    if (CKYCardConnection_GetProtocol(conn) == SCARD_PROTOCOL_T0) {
+	ret = CKYBuffer_Reserve(&tmp, CKY_MAX_WRITE_CHUNK_SIZE);
+	if (ret != CKYSUCCESS) {
+	    goto done;
+	}
+	for(offset = 0; length > CKY_MAX_WRITE_CHUNK_SIZE; 
+					hasPad = 0,
+					offset += CKY_MAX_WRITE_CHUNK_SIZE, 
+					length -= CKY_MAX_WRITE_CHUNK_SIZE) {
+	    pso.chain = 1;
+	    pso.retLen = 0;
+	    CKYBuffer_AppendBuffer(&tmp, data, offset, 
+	     hasPad ? (CKY_MAX_WRITE_CHUNK_SIZE-1) : CKY_MAX_WRITE_CHUNK_SIZE);
+            ret = CKYApplet_HandleAPDU(conn, 
+			P15AppletFactory_PerformSecurityOperation, &pso, NULL, 
+			CKY_SIZE_UNKNOWN, CKYAppletFill_Null, NULL, apduRC);
+	    if (ret != CKYSUCCESS) {
+		goto done;
+	    }
+	    CKYBuffer_Resize(&tmp, 0);
+	}
+	appendLength = length;
+    } else {
+	ret = CKYBuffer_Reserve(&tmp, length);
+	if (ret != CKYSUCCESS) {
+	    goto done;
+	}
+    }
+    CKYBuffer_AppendBuffer(&tmp, data, offset, appendLength);
+    pso.chain = 0;
+    pso.retLen = dataSize;
+
+    ret = CKYApplet_HandleAPDU(conn, 
+		P15AppletFactory_PerformSecurityOperation, &pso, NULL, 
+	CKY_SIZE_UNKNOWN, CKYAppletFill_ReplaceBuffer, result, apduRC);
+
+done:
+    CKYBuffer_FreeData(&tmp);
+    return ret;
+}
+
+/*
+ * Read Binary
+ */
+CKYStatus
+P15Applet_ReadBinary(CKYCardConnection *conn, unsigned short offset,
+			CKYByte short_ef, CKYByte flags, CKYByte size, 
+			CKYBuffer *data, CKYISOStatus *apduRC)
+{
+    P15AppletArgReadBinary red;
+
+    red.offset = offset;
+    red.short_ef = short_ef;
+    red.flags = flags;
+    red.size = size;
+    return CKYApplet_HandleAPDU(conn, P15AppletFactory_ReadBinary, &red, NULL,
+	CKY_SIZE_UNKNOWN, CKYAppletFill_AppendBuffer, data, apduRC);
 }
 
 CKYStatus 
@@ -1632,6 +1863,7 @@ CKYApplet_ReadObjectFull(CKYCardConnection *conn, unsigned long objectID,
 
     return ret;
 }
+
 
 /*
  * Write Object

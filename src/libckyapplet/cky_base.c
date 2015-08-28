@@ -651,21 +651,38 @@ CKYStatus
 CKYAPDU_SetSendData(CKYAPDU *apdu, const CKYByte *data, CKYSize len)
 {
     CKYStatus ret;
+    CKYOffset offset = 0;
 
-    if (len > CKYAPDU_MAX_DATA_LEN) {
+    /* Encode with T1 if necessary */
+
+    if (len < CKYAPDU_MAX_DATA_LEN) {
+	offset = 0;
+        ret = CKYBuffer_Resize(&apdu->apduBuf, len+offset+CKYAPDU_HEADER_LEN);
+	if (ret != CKYSUCCESS ) {
+	    return ret;
+	}
+    	ret = CKYBuffer_SetChar(&apdu->apduBuf, CKY_LC_OFFSET, (CKYByte) len);
+    } else if (len < CKYAPDU_MAX_T1_DATA_LEN) {
+	offset = 2;
+        ret = CKYBuffer_Resize(&apdu->apduBuf, len+offset+CKYAPDU_HEADER_LEN);
+	if (ret != CKYSUCCESS ) {
+	    return ret;
+	}
+    	ret = CKYBuffer_SetChar(&apdu->apduBuf, CKY_LC_OFFSET, (CKYByte) 0);
+	if (ret != CKYSUCCESS) {
+	    return ret;
+	}
+        ret = CKYBuffer_SetShort(&apdu->apduBuf,CKY_LC_OFFSET+1,
+							(unsigned short)len);
+    } else {
 	return CKYDATATOOLONG;
     }
-
-    ret = CKYBuffer_Resize(&apdu->apduBuf, len + CKYAPDU_HEADER_LEN);
+	
     if (ret != CKYSUCCESS) {
 	return ret;
     }
-    ret = CKYBuffer_SetChar(&apdu->apduBuf, CKY_LC_OFFSET,
-				len == CKYAPDU_MAX_DATA_LEN ? 0: (CKYByte) len);
-    if (ret != CKYSUCCESS) {
-	return ret;
-    }
-    return CKYBuffer_Replace(&apdu->apduBuf, CKYAPDU_HEADER_LEN, data, len);
+    return CKYBuffer_Replace(&apdu->apduBuf, 
+				CKYAPDU_HEADER_LEN + offset , data, len);
 }
 
 CKYStatus
@@ -685,15 +702,15 @@ CKYAPDU_AppendSendData(CKYAPDU *apdu, const CKYByte *data, CKYSize len)
     }
 
     dataLen = CKYBuffer_Size(&apdu->apduBuf) + len - CKYAPDU_HEADER_LEN;
-    if (dataLen > CKYAPDU_MAX_DATA_LEN) {
+    /* only handles T0 encoding, not T1 encoding */
+    if (dataLen >= CKYAPDU_MAX_DATA_LEN) {
 	return CKYDATATOOLONG;
     }
     ret = CKYBuffer_AppendData(&apdu->apduBuf, data, len);
     if (ret != CKYSUCCESS) {
 	return ret;
     }
-    return CKYBuffer_SetChar(&apdu->apduBuf, CKY_LC_OFFSET,
-			dataLen == CKYAPDU_MAX_DATA_LEN ? 0 : (CKYByte) dataLen);
+    return CKYBuffer_SetChar(&apdu->apduBuf, CKY_LC_OFFSET, (CKYByte) dataLen);
 }
 
 CKYStatus
@@ -714,9 +731,98 @@ CKYAPDU_SetReceiveLen(CKYAPDU *apdu, CKYByte recvlen)
 }
 
 CKYStatus
+CKYAPDU_SetShortReceiveLen(CKYAPDU *apdu, unsigned short recvlen)
+{
+    CKYStatus ret;
+
+    if (recvlen <= CKYAPDU_MAX_DATA_LEN) {
+	return CKYAPDU_SetReceiveLen(apdu, (CKYByte)(recvlen & 0xff));
+    }
+    ret = CKYBuffer_Resize(&apdu->apduBuf, CKYAPDU_HEADER_LEN+2);
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+    ret = CKYBuffer_SetChar(&apdu->apduBuf, CKY_LE_OFFSET, 0);
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+    return CKYBuffer_SetShort(&apdu->apduBuf, CKY_LE_OFFSET+1, recvlen);
+}
+
+CKYStatus
+CKYAPDU_SetReceiveLength(CKYAPDU *apdu, CKYSize recvlen)
+{
+    if (recvlen <= CKYAPDU_MAX_T1_DATA_LEN) {
+	return CKYAPDU_SetShortReceiveLen(apdu, (unsigned short) 
+						(recvlen & 0xffff));
+    }
+    return CKYDATATOOLONG;
+}
+
+/*
+ *  Append Le, If Le=0, treat it as 256 (CKYAPD_MAX_DATA_LEN)
+ */
+CKYStatus
 CKYAPDU_AppendReceiveLen(CKYAPDU *apdu, CKYByte recvlen)
 {
+    /* If we already have a data buffer, make sure that we aren't already
+     * using T1 encoding */
+    if (CKYBuffer_Size(&apdu->apduBuf) > CKYAPDU_MIN_LEN) {
+	if (CKYBuffer_GetChar(&apdu->apduBuf, CKY_LC_OFFSET) == 0) {
+	    /* we are using T1 encoding, use AppendShort*/
+	    return CKYBuffer_AppendShort(&apdu->apduBuf, 
+		recvlen ? (unsigned short) recvlen: CKYAPDU_MAX_DATA_LEN);
+	}
+    }
     return CKYBuffer_AppendChar(&apdu->apduBuf, recvlen);
+}
+
+/*
+ * Append a short Le. If Le be encoded with just T0, do so. If Le=0 treat
+ * it as 65536 (CKYAPDU_MAX_T1_DATA_LEN)
+ */
+CKYStatus
+CKYAPDU_AppendShortReceiveLen(CKYAPDU *apdu, unsigned short recvlen)
+{
+    CKYStatus ret;
+    /* If we already have a data buffer, it's encoding affects ours */
+    if (CKYBuffer_Size(&apdu->apduBuf) > CKYAPDU_MIN_LEN) {
+	/* CKY_LC_OFFSET == 0 means T1, otherwise it's T0 */
+	if (CKYBuffer_GetChar(&apdu->apduBuf, CKY_LC_OFFSET) != 0) {
+	    /* remember 0 is 65536 here */
+	    if ((recvlen == 0) || (recvlen > CKYAPDU_MAX_DATA_LEN)) {
+		/* we can't a encode T1 receive length if we already have a
+ 		 * T0 encoded buffer data */
+		return CKYDATATOOLONG;
+	    }
+	    /* T0 encoding */
+	    return CKYBuffer_AppendChar(&apdu->apduBuf, (CKYByte)recvlen&0xff);
+	}
+	/* T1 encoding */
+	return CKYBuffer_AppendShort(&apdu->apduBuf, recvlen);
+    }
+    /* if length fits in a bit and we aren't forced into T1 encoding, use
+     * T0 */
+    if ((recvlen != 0) && (recvlen <= CKYAPDU_MAX_DATA_LEN)) {
+	return CKYBuffer_AppendChar(&apdu->apduBuf, (CKYByte)recvlen&0xff);
+    }
+    /* write the T1 encoding marker */
+    ret = CKYBuffer_AppendChar(&apdu->apduBuf, (CKYByte)0);
+    if (ret != CKYSUCCESS) {
+	return ret;
+    }
+    /* T1 encoded length */
+    return CKYBuffer_AppendShort(&apdu->apduBuf, recvlen);
+}
+
+CKYStatus
+CKYAPDU_AppendReceiveLength(CKYAPDU *apdu, CKYSize recvlen)
+{
+    if (recvlen > CKYAPDU_MAX_T1_DATA_LEN) {
+	return CKYDATATOOLONG;
+    }
+    return CKYAPDU_AppendShortReceiveLen(apdu, 
+					(unsigned short)(recvlen & 0xffff));
 }
 
 

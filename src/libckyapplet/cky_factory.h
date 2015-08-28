@@ -35,8 +35,31 @@
  * Applet Instruction Bytes
  */
 /* Card Manager */
-#define CKY_INS_SELECT_FILE	0xa4
-#define CKY_INS_GET_DATA 	0xca
+#define ISO_INS_SELECT_FILE	0xa4
+#define ISO_INS_GET_DATA 	0xca
+#define ISO_INS_READ_BINARY 	0xb0
+#define ISO_INS_READ_RECORD 	0xb2
+#define ISO_INS_MANAGE_SECURITY_ENVIRONMENT 0x22
+#define ISO_INS_PERFORM_SECURITY_OPERATION 0x2a
+
+/* ISO Parameters: */
+#define ISO_LOGIN_LOCAL		0x80
+#define ISO_LOGIN_GLOBAL	0x00
+#define ISO_MSE_SET		0x01
+#define ISO_MSE_STORE		0xf2
+#define ISO_MSE_RESTORE		0xf3
+#define ISO_MSE_ERASE		0xf4
+#define ISO_MSE_QUAL_VERIFY	0x80
+#define ISO_MSE_QUAL_COMPUTE	0x40
+#define ISO_MSE_AUTH		0xa4
+#define ISO_MSE_SIGN		0xb6
+#define ISO_MSE_KEA		0xb8
+#define ISO_PSO_SIGN_P1		0x9e
+#define ISO_PSO_SIGN_P2		0x9a
+#define ISO_PSO_ENCRYPT_P1	0x86
+#define ISO_PSO_ENCRYPT_P2	0x80
+#define ISO_PSO_DECRYPT_P1	0x80
+#define ISO_PSO_DECRYPT_P2	0x86
 
 /* deprecated */
 #define CKY_INS_SETUP    	0x2A
@@ -84,6 +107,7 @@
 #define CKY_INS_SEC_READ_IOBUF	0x08
 #define CKY_INS_SEC_START_ENROLLMENT	0x0C
 
+
 /* CAC */
 #define CAC_INS_GET_CERTIFICATE 0x36
 #define CAC_INS_SIGN_DECRYPT	0x42
@@ -94,11 +118,8 @@
 #define CAC_SIZE_GET_PROPERTIES	48
 #define CAC_P1_STEP		0x80
 #define CAC_P1_FINAL		0x00
-#define CAC_LOGIN_GLOBAL	0x00
 
 /* PIV */
-#define PIV_LOGIN_LOCAL		0x80
-#define PIV_LOGIN_GLOBAL	CAC_LOGIN_GLOBAL
 #define PIV_INS_GEN_AUTHENTICATE 0x87
 
 /*
@@ -121,7 +142,7 @@
 /* functions */
 #define CKY_CIPHER_INIT		1
 #define CKY_CIPHER_PROCESS	2
-#define CKY_CIPHER_FINAL		3
+#define CKY_CIPHER_FINAL	3
 #define CKY_CIPHER_ONE_STEP	4  /* init and final in one APDU */
 
 /* modes */
@@ -172,6 +193,18 @@
 #define CKY_CARDM_MANAGER_SECURED         0x0f
 #define CKY_CARDM_MANAGER_LOCKED          0x7f
 #define CKY_CARDM_MANAGER_TERMINATED      0xff
+
+/* Read Record Flags */
+#define P15_READ_P1          0x4
+#define P15_READ_P1_TO_LAST  0x5
+#define P15_READ_LAST_TO_P1  0x6
+#define P15_READ_FIRST       0x0
+#define P15_READ_LAST        0x1
+#define P15_READ_NEXT        0x2
+#define P15_READ_PREV        0x3
+
+/* Read Binary Flags */
+#define P15_USE_SHORT_EF    0x80
 
 /*
  * The following factories 'Fill in' APDUs for each of the
@@ -234,16 +267,27 @@ CKYStatus CKYAPDUFactory_GetBuiltinACL(CKYAPDU *apdu);
 
 CKYStatus CACAPDUFactory_SignDecrypt(CKYAPDU *apdu, CKYByte type, 
 				     const CKYBuffer *data);
-CKYStatus CACAPDUFactory_VerifyPIN(CKYAPDU *apdu, CKYByte keyRef,
-				   const char *pin);
 CKYStatus CACAPDUFactory_GetCertificate(CKYAPDU *apdu, CKYSize size);
 CKYStatus CACAPDUFactory_ReadFile(CKYAPDU *apdu, unsigned short offset, 
 				  CKYByte type, CKYByte count);
 CKYStatus CACAPDUFactory_GetProperties(CKYAPDU *apdu);
+
 CKYStatus PIVAPDUFactory_GetData(CKYAPDU *apdu, const CKYBuffer *object, 
 				CKYByte count);
 CKYStatus PIVAPDUFactory_SignDecrypt(CKYAPDU *apdu, CKYByte chain, CKYByte alg, 
                            CKYByte key, int len, const CKYBuffer *data);
+
+CKYStatus P15APDUFactory_VerifyPIN(CKYAPDU *apdu, CKYByte keyRef,
+			   const CKYBuffer *pin);
+CKYStatus P15APDUFactory_ReadRecord(CKYAPDU *apdu, CKYByte record, 
+			   CKYByte short_ef, CKYByte flags, CKYByte count);
+CKYStatus P15APDUFactory_ReadBinary(CKYAPDU *apdu, unsigned short offset, 
+			   CKYByte short_ef, CKYByte flags, CKYByte count);
+CKYStatus P15APDUFactory_ManageSecurityEnvironment(CKYAPDU *apdu, 
+			   CKYByte p1, CKYByte p2, CKYByte key);
+CKYStatus P15APDUFactory_PerformSecurityOperation(CKYAPDU *apdu, CKYByte dir,
+			   int chain, CKYSize retLen, const CKYBuffer *data);
+
 
 CKY_END_PROTOS
 

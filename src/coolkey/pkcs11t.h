@@ -274,6 +274,7 @@ typedef CK_ULONG          CK_USER_TYPE;
 #define CKU_SO    0
 /* Normal user */
 #define CKU_USER  1
+#define CKU_CONTEXT_SPECIFIC 2
 
 
 /* CK_STATE enumerates the session states */
@@ -491,6 +492,9 @@ typedef CK_ULONG          CK_ATTRIBUTE_TYPE;
 #define CKA_HW_FEATURE_TYPE    0x00000300
 #define CKA_RESET_ON_INIT      0x00000301
 #define CKA_HAS_RESET          0x00000302
+
+/* new for v2.20 */
+#define CKA_ALWAYS_AUTHENTICATE  0x00000202
 
 #define CKA_VENDOR_DEFINED     0x80000000
 

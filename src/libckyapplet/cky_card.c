@@ -915,6 +915,7 @@ ckyCardConnection_init(CKYCardConnection *conn, const CKYCardContext *ctx)
     conn->protocol = SCARD_PROTOCOL_T0;
 }
 
+
 CKYCardConnection *
 CKYCardConnection_Create(const CKYCardContext *ctx)
 {
@@ -989,6 +990,12 @@ CKYCardConnection_IsConnected(const CKYCardConnection *conn)
     return (conn->cardHandle != 0);
 }
 
+unsigned long
+CKYCardConnection_GetProtocol(const CKYCardConnection *conn)
+{
+    return conn->protocol;
+}
+
 CKYStatus 
 ckyCardConnection_reconnectRaw(CKYCardConnection *conn, unsigned long init)
 {
@@ -1001,6 +1008,7 @@ ckyCardConnection_reconnectRaw(CKYCardConnection *conn, unsigned long init)
 	conn->lastError = rv;
 	return CKYSCARDERR;
     }
+    conn->protocol = protocol;
     return CKYSUCCESS;
 }
 
