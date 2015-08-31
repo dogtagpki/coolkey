@@ -83,6 +83,7 @@ void dumpData(const char *label, const CKYByte *buf, CKYSize size)
 	printf("   ");
     }
     printf(" %s\n",string);
+    fflush(stdout);
 }
 #endif
 
