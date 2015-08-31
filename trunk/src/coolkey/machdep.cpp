@@ -351,7 +351,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
     if (shmemData->fd >= 0) {
 	char *buf;
 	int len = size+RESERVED_OFFSET;
-        int ret;
+	int ret;
 
 	buf = (char *)calloc(1,len);
 	if (!buf) {
@@ -364,7 +364,7 @@ SHMem::initSegment(const char *name, int size, bool &init)
 	    return NULL;
 	}
 	ret = write(shmemData->fd,buf,len);
-        if (ret != len) {
+	if (ret != len) {
 	    unlink(shmemData->path);
 #ifdef FULL_CLEANUP
 	    flock(shmemData->fd, LOCK_UN);
