@@ -744,6 +744,8 @@ GetECKeyFieldItems(const CKYByte *spki_data, CKYSize spki_length,
     CKYSize buf_length = spki_length;
     const CKYByte*dummy;
     CKYSize dummylen;
+    const CKYByte *algid;
+    CKYSize algidlen;
 
     if (!point || !params || !buf)
         return SECFailure;
@@ -753,11 +755,21 @@ GetECKeyFieldItems(const CKYByte *spki_data, CKYSize spki_length,
     params->data = NULL;
     params->len = 0;
 
-    /* skip past the algorithm id */
+    /* unwrap the algorithm id */
     dummy = dataStart(buf,buf_length,&dummylen,false);
     if (dummy == NULL) return SECFailure;
     buf_length -= (dummy-buf) + dummylen;
     buf = dummy + dummylen;
+    /* unwrpped value is in dummy */
+    algid = dummy;
+    algidlen = dummylen;
+    /* skip past algid oid */
+    dummy = dataStart(algid, algidlen, &dummylen, false);
+    if (dummy == NULL) return SECFailure;
+    algidlen -= (dummy-algid) + dummylen;
+    algid = dummy + dummylen;
+    params->data = algid;
+    params->len = algidlen;
 
        /* unwrap the public key info */
     buf = dataStart(buf,buf_length,&buf_length,false);
@@ -829,6 +841,10 @@ GetKeyTypeFromSPKI(const CKYBuffer *key)
     /* Get actual oid buffer */
 
     keyData = dataStart(algIdItem.data,algIdItem.len,&length, false);
+    if (keyData == NULL) {
+	throw PKCS11Exception(CKR_FUNCTION_FAILED,
+			"Failed to decode key algorithm ID.");
+    }
 
     bool match = FALSE;
     
@@ -2556,7 +2572,8 @@ DEREncodedSignature::~DEREncodedSignature()
 
 }
 
-int DEREncodedSignature::getRawSignature(CKYBuffer *rawSig, unsigned int keySize)
+int DEREncodedSignature::getRawSignature(CKYBuffer *rawSig,
+					 unsigned int keySize)
 {
 
     const CKYByte *buf = NULL;

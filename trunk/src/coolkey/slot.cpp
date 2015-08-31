@@ -784,7 +784,6 @@ Slot::connectToToken()
 	mCACLocalLogin = getPIVLoginType();
 	return;
     }
-    log->log("PIV Select failed 0x%x\n", status);
     status = CKYApplet_SelectCoolKeyManager(conn, NULL);
     if (status != CKYSUCCESS) {
 	log->log("CoolKey Select failed 0x%x\n", status);
@@ -804,13 +803,13 @@ Slot::connectToToken()
 	    /* enable PKCS 15 */
 	    state |= P15_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
 	    isVersion1Key = 0;
-	    needLogin = true;
+	    needLogin = false; /* get it from token info */
 	    mCoolkey = 0;
 	    mCACLocalLogin = false;
 	    return;
 	}
 	state |= CAC_CARD | APPLET_SELECTABLE | APPLET_PERSONALIZED;
-	isVersion1Key;
+	isVersion1Key = 0;
 	needLogin = true;
 	mCoolkey = 0;
 	mCACLocalLogin = false;
@@ -4486,10 +4485,15 @@ Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
         params.setKeySize(keySize);
 
     if( CKYBuffer_Size(result) == 0 ) {
+	unsigned int maxSize = param.getKeySize()/8;
+
         // we haven't already peformed the decryption, so do it now.
         if( pInput == NULL || ulInputLen == 0) {
             throw PKCS11Exception(CKR_DATA_LEN_RANGE);
         }
+	if (ulInputLen > maxSize) {
+	    ulInputlen = maxSize;
+	}
 	// OK, this is gross. We should get our own C++ like buffer
         // management at this point. This code has nothing to do with
 	// the applet, it shouldn't be using applet specific buffers.
@@ -4640,7 +4644,7 @@ Slot::performECCSignature(CKYBuffer *output, const CKYBuffer *input,
     CKYStatus status = trans.begin(conn);
     if( status != CKYSUCCESS ) handleConnectionError();
 
-    if (!mECC || state & CAC_CARD || state & PIV_CARD  ) {
+    if (!mECC) {
         throw PKCS11Exception(CKR_FUNCTION_NOT_SUPPORTED);
     }
 
@@ -5088,7 +5092,7 @@ retry:
     /* map the ISO not logged in code to the coolkey one */
     if ((result == CKYISO_CONDITION_NOT_SATISFIED) ||
 	 (result == CKYISO_SECURITY_NOT_SATISFIED)) {
-	result = CKYISO_UNAUTHORIZED;
+	result = (CKYStatus) CKYISO_UNAUTHORIZED;
     }
 
     if (status != CKYSUCCESS) {
