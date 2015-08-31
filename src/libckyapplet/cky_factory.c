@@ -729,7 +729,7 @@ PIVAPDUFactory_SignDecrypt(CKYAPDU *apdu, CKYByte chain, CKYByte alg,
     CKYAPDU_SetP1(apdu, alg);
     CKYAPDU_SetP2(apdu, key);
     ret =  CKYAPDU_SetSendDataBuffer(apdu, data);
-    if (ret == CKYSUCCESS && len != 0) {
+    if (ret == CKYSUCCESS && chain == 0 && len != 0) {
 	if (len >= 256) len = 0;
 	ret = CKYAPDU_AppendReceiveLen(apdu, len);
     }

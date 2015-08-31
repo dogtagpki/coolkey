@@ -228,7 +228,7 @@ class CryptOpState {
     ~CryptOpState() { CKYBuffer_FreeData(&result); }
     void initialize(PKCS11Object *theKey) {
         state = IN_PROCESS;
-        this->key = key;
+        this->key = theKey;
         CKYBuffer_Resize(&result, 0);
     }
 };

@@ -1448,6 +1448,37 @@ CACApplet_GetCertificateAppend(CKYCardConnection *conn, CKYBuffer *cert,
     return ret;
 }
 
+/* Select the PIV applet */
+static CKYByte pivAid[] = {0xa0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 
+			   0x10, 0x00};
+CKYStatus
+PIVApplet_Select(CKYCardConnection *conn, CKYISOStatus *apduRC)
+{
+    CKYStatus ret;
+    CKYBuffer PIV_Applet_AID,return_AID;
+    
+    CKYBuffer_InitEmpty(&return_AID);
+    CKYBuffer_InitFromData(&PIV_Applet_AID, pivAid, sizeof(pivAid));
+    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, 
+		 &PIV_Applet_AID,
+		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_AppendBuffer, 
+		 &return_AID, apduRC);
+    /* Some cards return OK, but don't switch to our applet */
+    /* PIV has a well defined return for it's select, check to see if we have
+     * a PIV card here */
+    if (CKYBuffer_GetChar(&return_AID,0) != 0x61) {
+	/* not an application property template, so not a PIV. We could
+	 * check that the aid tag (0x4f) and theallocation authority tag (0x79)
+	 * are present, but what we are really avoiding is broken cards that
+	 * lie about being able to switch to a particular applet, so the first
+	 * tag should be sufficient */
+	ret = CKYAPDUFAIL; /* what we should have gotten */
+    }
+    CKYBuffer_FreeData(&PIV_Applet_AID);
+    CKYBuffer_FreeData(&return_AID);
+    return ret;
+}
+
 /*
  * Get a PIV Certificate 
  */
@@ -1489,37 +1520,6 @@ PIVApplet_GetCertificate(CKYCardConnection *conn, CKYBuffer *cert, int tag,
 loser:
     CKYBuffer_FreeData(&tagBuf);
 
-    return ret;
-}
-
-/* Select the PIV applet */
-static CKYByte pivAid[] = {0xa0, 0x00, 0x00, 0x03, 0x08, 0x00, 0x00, 
-			   0x10, 0x00};
-CKYStatus
-PIVApplet_Select(CKYCardConnection *conn, CKYISOStatus *apduRC)
-{
-    CKYStatus ret;
-    CKYBuffer PIV_Applet_AID,return_AID;
-    
-    CKYBuffer_InitEmpty(&return_AID);
-    CKYBuffer_InitFromData(&PIV_Applet_AID, pivAid, sizeof(pivAid));
-    ret = CKYApplet_HandleAPDU(conn, CKYAppletFactory_SelectFile, 
-		 &PIV_Applet_AID,
-		 NULL, CKY_SIZE_UNKNOWN, CKYAppletFill_AppendBuffer, 
-		 &return_AID, apduRC);
-    /* Some cards return OK, but don't switch to our applet */
-    /* PIV has a well defined return for it's select, check to see if we have
-     * a PIV card here */
-    if (CKYBuffer_GetChar(&return_AID,0) != 0x61) {
-	/* not an application property template, so not a PIV. We could
-	 * check that the aid tag (0x4f) and theallocation authority tag (0x79)
-	 * are present, but what we are really avoiding is broken cards that
-	 * lie about being able to switch to a particular applet, so the first
-	 * tag should be sufficient */
-	ret = CKYAPDUFAIL; /* what we should have gotten */
-    }
-    CKYBuffer_FreeData(&PIV_Applet_AID);
-    CKYBuffer_FreeData(&return_AID);
     return ret;
 }
 

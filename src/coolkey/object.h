@@ -150,10 +150,10 @@ class PKCS11Object {
     PKCS11Object(const PKCS11Object& cpy) :
         attributes(cpy.attributes), muscleObjID(cpy.muscleObjID),
         handle(cpy.handle), label(NULL),  keySize(cpy.keySize),
-	name(NULL), keyType(cpy.keyType), keyRef(cpy.keyRef),
+	user(cpy.user), name(NULL), keyType(cpy.keyType), keyRef(cpy.keyRef),
 	objectPath(cpy.objectPath) { 
 			/* label is just a cached value, don't need
-			 *  copy it. */
+			 * to copy it. */
 			if (cpy.name != NULL) {
 			    int len = strlen(cpy.name);
 			    name = new char [len+1];
