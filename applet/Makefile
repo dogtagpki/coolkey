@@ -162,7 +162,7 @@ BUILD_CLASSPATH="$(JAVACARD_KIT_DIR)/lib/javacardframework.jar$(SEP)$(JAVACARD_K
 $(JAVA_CLASS_FILES): $(JAVA_SRC_FILES)
 	mkdir -p $(CONVERTER_OUTPUT_DIR)
 	perl ./update_buildid.pl $(JAVA_SRC_FILES)
-	$(JAVAC) -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES) 
+	$(JAVAC) -source 1.2 -target 1.2 -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES) 
 
 #############################################################################
 # The next step is to convert the regular Java class files into the Javacard
