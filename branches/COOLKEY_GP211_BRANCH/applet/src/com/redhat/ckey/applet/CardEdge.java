@@ -124,8 +124,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 5;
-    private static final short BUILDID_MAJOR = (short) 0x558c;
-    private static final short BUILDID_MINOR = (short) 0x8ddb;
+    private static final short BUILDID_MAJOR = (short) 0x5875;
+    private static final short BUILDID_MINOR = (short) 0x5660;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -243,6 +243,7 @@ public class CardEdge extends Applet
     private static final byte INS_SEC_READ_IOBUF            = (byte)0x08;
     private static final byte INS_SEC_IMPORT_KEY_ENCRYPTED  = (byte)0x0A;
     private static final byte INS_SEC_START_ENROLLMENT      = (byte)0x0C;
+    private static final byte INS_SEC_CLEAR_KEY_SLOTS       = (byte)0x55;
     
     /* AC: SCP02 and SCP03 secure channel commands */
     private static final byte INS_SEC_BEGIN_RMAC            = (byte)0x7A;
@@ -1844,7 +1845,7 @@ public class CardEdge extends Applet
 	    // I/O Buffer
 	    buf = iobuf;
 	    base = 0;
-	    if( offset > iobuf_size || (short)(offset + size) > iobuf_size )
+	    if( offset > iobuf_size || (short)(offset + size) > iobuf_size || ((short)(offset + size) < 0))
 		ISOException.throwIt(SW_INVALID_PARAMETER);
 	} else {
 	    buf = mem.getBuffer();
@@ -1856,7 +1857,7 @@ public class CardEdge extends Applet
 	    if (!om.authorizeReadFromAddress(base, authenticated_id))
 		ISOException.throwIt(SW_UNAUTHORIZED);
 	
-	    if ((short)(offset + size) > om.getSizeFromAddress(base))
+	    if ((short)(offset + size) > om.getSizeFromAddress(base) || ((short) (offset + size) < 0))
 		ISOException.throwIt(SW_INVALID_PARAMETER);
 	}
 	
@@ -2192,6 +2193,105 @@ public class CardEdge extends Applet
 	    //AuthenticateIdentity(DEFAULT_IDENTITY);
 	}
 	buffer[ISO7816.OFFSET_LC] = (byte) (bytes - NONCE_SIZE);
+    }
+
+    // Routine expects a list of key attr id's actually written to the
+    // token at this point
+    // Expect bytes like the following
+    // 1 byte: number of key pair indexes
+    // This byte is obtained like this: buffer[ISO7816.OFFSET_LC];
+    //
+    // Subsequent bytes of data will consist of key indexes like this:
+    //
+    // 1 byte: private key index, 1 byte: public key index
+    //
+    // Routine will clear the key slots not
+    // actually attached to present certificates
+    // It is up to the host entity to calculate this list accurately.
+    //
+    private void clearKeySlots(APDU apdu,byte[] buffer) {
+        byte p1 = buffer[ISO7816.OFFSET_P1];
+        byte p2 = buffer[ISO7816.OFFSET_P2];
+
+        //This constant establishes the start of an array of bytes that will hold a list of
+        //key slots that will NOT be cleared out.
+        //The array will be at first initialized to all zeroes. Then a 1 will be set for each present
+        //key index. The routine will then traverse this array and clear off key slots NOT set to one in
+        //this array.
+        //
+        //The array is at the given offset from the start of the iobuffer, which is already alocated transient 
+        //memory.
+        //
+        //The value of 850 is chosen to leave enough room before the end to hold a byte for each key slot in the global
+        //key array. It is also chosen high enough to not interfere with the actual operation of the iobuffer when perfoming
+        //crypto operations and other functions.
+        short ioOffset = 850;
+
+        byte[] keySlotsUsed = iobuf;
+
+        //Zero out the index array
+        Util.arrayFillNonAtomic(keySlotsUsed, ioOffset,MAX_NUM_KEYS , ZEROB);
+
+        if ( p1 != 0 )
+            ISOException.throwIt(SW_INCORRECT_P1);
+       
+        if ( p2 != 0 ) {
+            ISOException.throwIt(SW_INCORRECT_P2); 
+        }
+
+        //Get the number of key indexes.
+        byte dataSize = buffer[ISO7816.OFFSET_LC]; 
+
+        if( dataSize == 0 || (dataSize % 2 != 0 ) ) 
+            ISOException.throwIt(SW_INVALID_PARAMETER); 
+
+         byte index = 0;
+         // Expect a list of key pairs in use by the token's certs
+         // This routine then will make sure ALL other key slots
+         // have been cleared out
+         //
+
+         for (index = 0; index < dataSize; index += 2) {
+            byte  nb_key_prv  = buffer[(short) (ISO7816.OFFSET_CDATA + index)];
+
+            if ( nb_key_prv > MAX_NUM_KEYS )
+                ISOException.throwIt(SW_INVALID_PARAMETER);
+
+            byte  nb_key_pub  = buffer[(short) (ISO7816.OFFSET_CDATA + index + 1)];
+
+            if ( nb_key_pub > MAX_NUM_KEYS )
+                ISOException.throwIt(SW_INVALID_PARAMETER);
+
+            if ( ((keyMate[nb_key_prv] != -1)
+                                && (keyMate[nb_key_prv] != nb_key_pub))
+               || ((keyMate[nb_key_pub] != -1)
+                                && (keyMate[nb_key_pub] != nb_key_prv)) )  {
+                ISOException.throwIt(SW_INCONSTANT_KEYPAIRING);
+            }
+       
+            keySlotsUsed[(short) (ioOffset + nb_key_prv)] = 1;
+            keySlotsUsed[(short) (ioOffset + nb_key_pub)] = 1; 
+        }
+
+        // We only want to clear the object but leave it.
+        // Javacard with persistent memory recommends declaring and
+        // reusing object instead of constanly creating and destroying them.
+        // This will put a strain on the limited update cycles of this kind of memory.
+        //
+        
+        for(short i = 0 ; i < MAX_NUM_KEYS; i++ ) {
+            if(keySlotsUsed[(short) (ioOffset + i)] != 1) {
+                if(keys[i] != null  && keys[i].isInitialized()) {
+                    if(!authorizeKeyWrite((byte) i)) {
+                         ISOException.throwIt(SW_UNAUTHORIZED);           
+                    }
+                    keys[i].clearKey();
+                    keyMate[i] = -1;
+                }
+
+            } 
+        }
+        Util.arrayFillNonAtomic(keySlotsUsed , ioOffset,MAX_NUM_KEYS , ZEROB);
     }
 
     private void resetPIN(APDU apdu, byte[] buffer) {
@@ -2963,11 +3063,18 @@ public class CardEdge extends Applet
 	    if (0 == (authenticated_id & create_key_ACL))
 		ISOException.throwIt(SW_UNAUTHORIZED);
 	    keys[key_nb] = KeyBuilder.buildKey(jc_key_type, key_size, false);
-	} else
-	if (keys[key_nb].getSize() != key_size 
-		|| keys[key_nb].getType() != jc_key_type)
-	    ISOException.throwIt(SW_OPERATION_NOT_ALLOWED);
-	return keys[key_nb];
+	} else {
+
+            //Now that we can clear key data from orphan key slots
+            //no longer blow up here if the key is simply not initialized
+            if( keys[key_nb].isInitialized()) {
+                if (keys[key_nb].getSize() != key_size
+                        || keys[key_nb].getType() != jc_key_type)
+                        ISOException.throwIt(SW_OPERATION_NOT_ALLOWED);
+            }
+        }
+
+        return keys[key_nb];
     }
 
     private byte getKeyType(Key key)
@@ -3225,6 +3332,10 @@ public class CardEdge extends Applet
 	case INS_SEC_EXT_AUTH:
 	    externalAuthenticate(apdu, buffer);
 	    break;
+
+        case INS_SEC_CLEAR_KEY_SLOTS:
+            clearKeySlots(apdu,buffer);
+            break;
 
 	case INS_SEC_END_RMAC:  /* fall through */
 	case INS_SEC_BEGIN_RMAC:
