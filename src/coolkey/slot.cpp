@@ -4485,14 +4485,14 @@ Slot::cryptRSA(SessionHandleSuffix suffix, CK_BYTE_PTR pInput,
         params.setKeySize(keySize);
 
     if( CKYBuffer_Size(result) == 0 ) {
-	unsigned int maxSize = param.getKeySize()/8;
+	unsigned int maxSize = params.getKeySize()/8;
 
         // we haven't already peformed the decryption, so do it now.
         if( pInput == NULL || ulInputLen == 0) {
             throw PKCS11Exception(CKR_DATA_LEN_RANGE);
         }
 	if (ulInputLen > maxSize) {
-	    ulInputlen = maxSize;
+	    ulInputLen = maxSize;
 	}
 	// OK, this is gross. We should get our own C++ like buffer
         // management at this point. This code has nothing to do with

@@ -8234,6 +8234,8 @@ LIBTOOL_DEPS="$ltmain"
 
 # Always use our own libtool.
 LIBTOOL='$(SHELL) $(top_builddir)/libtool'
+# Except when it fails to build on Fedora / Red Hat
+LIBTOOL='$(SHELL) libtool'
 
 
 
