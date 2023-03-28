@@ -124,8 +124,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 5;
-    private static final short BUILDID_MAJOR = (short) 0x5875;
-    private static final short BUILDID_MINOR = (short) 0x5660;
+    private static final short BUILDID_MAJOR = (short) 0x6426;
+    private static final short BUILDID_MINOR = (short) 0x0792;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -411,19 +411,18 @@ public class CardEdge extends Applet
     private static final short WRAPKEY_OFFSET_DATA        =  6;
 
     private static final short OFFSET_IMP_KEY_ENC_WRAP_KEY      =  5;
+    //Let's try to support 4096 first. Larger keys will require a very large IO buffer.
+    private static final short MAX_RSA_MOD_BITS  = 4096;
 
-    private static final short MAX_RSA_MOD_BITS  = 2048;
-    private static final short MAX_RSA_MOD_BYTES = 256;
-
-    // 554 = 2 bytes for explicit length, 
-    //     512 bytes for data
-    //      40 bytes for two sha digest buffers.
-    //private static final short IOBUF_ALLOC = 554;
-    private static final short IOBUF_ALLOC =  900;
-    // offsets in iobuf used by CryptProcessFinal()
-    private static final short VFY_OFF   =  450;
-    private static final short VFY_MD_0  = 714;
-    private static final short VFY_MD_1  = 734;
+    // 2400 = 2 bytes for explicit length,
+    //     2398 bytes for data and digest buffers
+    //      128 bytes of which are for two shaXXX digest buffers.
+    //Make iobuf long enough to eventually support  bit ops
+    private static final short IOBUF_ALLOC =  (short) 1200;
+     // offsets in iobuf used by CryptProcessFinal()
+    private static final short VFY_OFF   = (short) 514;
+    private static final short VFY_MD_0  =  (short) 1100;
+    private static final short VFY_MD_1  =  (short) 1150;
 
     // how many ms to delay when a bad password is detected
     private static final short BAD_PASSWD_DELAY = 1000; 
@@ -453,6 +452,15 @@ public class CardEdge extends Applet
     };
     private static final short sha1encodeLen = 15;
 
+    // AES constants
+
+    private static final short AES_BLOCK_SIZE= (short)16; /* bytes */
+    private static final short AES_KEY_WRAP_BLOCK_SIZE = (short) AES_BLOCK_SIZE / 2;
+    private static final short AES_KEY_WRAP_IV_BYTES = (short) AES_KEY_WRAP_BLOCK_SIZE;
+    private static final short AES_MAGIC_IV_LEN = 4;
+    private static final byte AES_MAGIC_IV[] = {(byte)0xa6, (byte)  0x59, (byte) 0x59,(byte) 0xa6};
+
+
     /**
      * Instance variable primitive declarations  ALL PERSISTENT MEMORY
      */
@@ -475,10 +483,13 @@ public class CardEdge extends Applet
     
     // AC: Bugfix & new GP 2.1.1 code - Need a 2-key 3DES Key object for SecureImportKeyEncrypted
     private DESKey m_2key3desKey = null;
+    private AESKey m_aesKey = null;
     
     // AC: Bugfix & new GP 2.1.1 code
     private Cipher m_desCipher_cbc;     // rename "des" to "desCipher_cbc"
     private Cipher m_desCipher_ecb;     // new cipher object for ECB
+    private Cipher m_aesCipher_ecb;
+    private Cipher m_aesCipher_cbc;
 
     /**
      * Instance variable objects and array declarations - PERSISTENT
@@ -494,6 +505,7 @@ public class CardEdge extends Applet
     private OwnerPIN[]    pins;           // persistent
     private Signature[]   signatures;     // persistent
     private byte[]        default_nonce;  // persistent
+    private byte[]        default_iv;     // persistent
     private byte[]        keyACLs;        // persistent
     private byte[]        keyTries;       // persistent
     private byte[]        issuerInfo;     // persistent
@@ -510,6 +522,16 @@ public class CardEdge extends Applet
     private byte[]        nonce;              // transient
     private short[]       loginCount;         // transient
 
+    /* AES KWP related allocations
+     *
+     */
+
+     byte[] kwp_iv;
+     Unsigned64 kwp_t;
+     Unsigned64 kwp_B0;
+     Unsigned64 kwp_B1;
+     Unsigned64 kwp_R ;
+     Unsigned64 kwp_iv64;
 
     private CardEdge(byte bArray[], short bOffset, byte bLength)
     {
@@ -538,7 +560,19 @@ public class CardEdge extends Applet
         ciphers       = new Cipher    [MAX_NUM_KEYS];
         signatures    = new Signature [MAX_NUM_KEYS];
         default_nonce = new byte      [NONCE_SIZE];
+        default_iv    = new byte      [NONCE_SIZE *2];
         issuerInfo    = new byte      [ISSUER_INFO_SIZE];
+
+
+	/* AES KWP allocations
+	 *
+	 */
+
+        kwp_t = new Unsigned64();
+        kwp_B0 = new Unsigned64();
+        kwp_B1 = new Unsigned64();
+        kwp_R  = new Unsigned64();
+        kwp_iv64 = new Unsigned64();
 
         for (byte i = 0; i < MAX_NUM_KEYS; i++) {
             keyTries[i] = MAX_KEY_TRIES;
@@ -546,14 +580,17 @@ public class CardEdge extends Applet
         }
 
         Util.arrayFillNonAtomic(default_nonce, ZEROS, NONCE_SIZE, ZEROB);
+        Util.arrayFillNonAtomic(default_iv, ZEROS,(short) (NONCE_SIZE * 2), ZEROB);
         Util.arrayFillNonAtomic(issuerInfo, ZEROS,ISSUER_INFO_SIZE, ZEROB);
 
         // AC: Bugfix & new GP 2.1.1 code - Need a 2-key 3DES Key object for SecureImportKeyEncrypted
         m_2key3desKey = (DESKey) KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
-
+        m_aesKey = (AESKey) KeyBuilder.buildKey(KeyBuilder.TYPE_AES, KeyBuilder.LENGTH_AES_128,false);
         // AC: Bugfix & new GP 2.1.1 code - Should initialize Cipher objects inside constructor; need additional Cipher object for ECB (used for KCV)
         m_desCipher_cbc = Cipher.getInstance(Cipher.ALG_DES_CBC_NOPAD, false);
         m_desCipher_ecb = Cipher.getInstance(Cipher.ALG_DES_ECB_NOPAD, false);
+        m_aesCipher_cbc = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_CBC_NOPAD,false);
+        m_aesCipher_ecb = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_ECB_NOPAD ,false);
 
         byte appDataLen = 0;
         byte issuerLen = 0;
@@ -973,7 +1010,7 @@ public class CardEdge extends Applet
 	short   src_avail;
 	short   dst_len;
 	short   dst_avail;
-	boolean doubleCheck = false;
+        boolean doubleCheck = false;
 
 	if (ciph == null) {
 	    ISOException.throwIt(SW_INCORRECT_P1);
@@ -1006,7 +1043,7 @@ public class CardEdge extends Applet
 	    dst_buf = iobuf;
 	    src_base = 0;
 	    src_avail = iobuf_size;
-	    dst_avail = 258; // 2 byte length + 256 byte data
+	    dst_avail = iobuf_size; // Need more space for bigger key sizes
 	    break;
 
 	default:
@@ -1020,6 +1057,7 @@ public class CardEdge extends Applet
 
 	short size = Util.getShort(src_buf, src_base);
 	src_base += 2;
+
 	if (src_avail < (short)(2 + size) || size < 0) {
 	    ISOException.throwIt(SW_DATA_CHUNK_SIZE_ERROR);
 	    return false;
@@ -1029,9 +1067,9 @@ public class CardEdge extends Applet
 
 	switch (keyType) {
 	case KeyBuilder.TYPE_RSA_CRT_PRIVATE:
-	    if (ciph_dir == CD_ENCRYPT)
-		doubleCheck = true;
-	    // fall thru
+            if (ciph_dir == CD_ENCRYPT)
+                doubleCheck = true;
+	    //fall through
 	case KeyBuilder.TYPE_RSA_PUBLIC:
 	case KeyBuilder.TYPE_RSA_PRIVATE:
 	  {
@@ -1091,40 +1129,63 @@ public class CardEdge extends Applet
 	    return false;
 	}
 
-
 	if (op == OP_PROCESS) {
 	    dst_len = ciph.update(src_buf, src_base, size, 
 				  dst_buf, dst_base);
 	} else {
+            //Leave the digest size as is for now since, it's used
+            //in the start enrollment call and since it's used internally
+            //to double check the crypto operation.
 
-	    if (doubleCheck) {
-		doDigest(src_buf, src_base, size, iobuf, VFY_MD_0);
-	    }
+             short keySize = key.getSize();
 
-	    dst_len = ciph.doFinal(src_buf, src_base, size, 
-				   dst_buf, dst_base);
+            //Bad... Having trouble with initializing a public key ciper with
+            // public key 3072 bits or greater.
+            // Allow this for now for tokens such as the g&d 7.0.
+            //
+            if(keySize > (short) 2048) {
+                doubleCheck = false;
+            }
 
-	    if (doubleCheck) {
-		// Use the public key to decrypt
-		Key pubkey = keys[(short)keyMate[key_nb]];
-		// setup cipher object for decrypt
-		ciph.init(pubkey, Cipher.MODE_DECRYPT);
-		// do a decrypt to the original source buffer
-		short newsize = ciph.doFinal(dst_buf, dst_base, dst_len, 
-					     iobuf, VFY_OFF);
-		// should get back result of same length as original input
-		if (size != newsize) {
-		    ISOException.throwIt(SW_INTERNAL_ERROR); // unambiguous
-		    return false;
-		}
-		doDigest(iobuf, VFY_OFF, size, iobuf, VFY_MD_1);
-		// compare checksums of original and decrypted sources
-		if (0 != Util.arrayCompare(iobuf, VFY_MD_0, 
-					   iobuf, VFY_MD_1, (short)20 )) {
-		    ISOException.throwIt(SW_SIGNATURE_INVALID); // unambiguous
-		    return false;
-		}
-	    }
+            if(doubleCheck) {
+                doDigest(src_buf, src_base, size, iobuf, VFY_MD_0);
+            }
+            dst_len = ciph.doFinal(src_buf, src_base, size,
+                                   dst_buf, dst_base);
+
+            if (doubleCheck) {
+                // do a decrypt to the original source buffer
+                short newsize = 0;
+
+                 // Use the public key to decrypt
+                 Key pubkey = keys[(short)keyMate[key_nb]];
+
+                 try {
+                    ciph.init(pubkey, Cipher.MODE_DECRYPT);
+                 } catch (CryptoException e) {
+                    // Throw the actual reason for debugging should this happen.
+                    ISOException.throwIt((short) e.getReason());
+                }
+
+		newsize = ciph.doFinal(dst_buf, dst_base, dst_len,
+                                             iobuf, VFY_OFF);
+
+                // should get back result of same length as original input
+                if (size != newsize) {
+                    ISOException.throwIt(SW_INTERNAL_ERROR); // unambiguous
+                    return false;
+                }
+
+                doDigest(iobuf, VFY_OFF, size, iobuf, VFY_MD_1);
+
+                // compare checksums of original and decrypted sources
+                if (0 != Util.arrayCompare(iobuf, VFY_MD_0,
+                                           iobuf, VFY_MD_1, (short)20 )) {
+                    ISOException.throwIt(SW_SIGNATURE_INVALID); // unambiguous
+                    return false;
+                }
+            }
+
 	}
 
 	Util.setShort(dst_buf, ZEROS, dst_len);
@@ -1209,7 +1270,7 @@ public class CardEdge extends Applet
     {
 	short bytesLeft = Util.makeShort(ZEROB, buffer[ISO7816.OFFSET_LC]);
 	boolean forceCreate = ((authenticated_id & RA_ACL) == RA_ACL);
-	
+
 	if ((authenticated_id & create_object_ACL) == 0)
 	    ISOException.throwIt(SW_UNAUTHORIZED);
 	
@@ -1358,7 +1419,7 @@ public class CardEdge extends Applet
 	    ISOException.throwIt(SW_INCORRECT_P1);
 	
 	short pos = 0;
-	
+
 	buffer[pos++] = VERSION_PROTOCOL_MAJOR;
 	buffer[pos++] = VERSION_PROTOCOL_MINOR;
 	buffer[pos++] = VERSION_APPLET_MAJOR;
@@ -1478,7 +1539,8 @@ public class CardEdge extends Applet
     
 	    case KEY_RSA_PRIVATE_CRT:
 	    {
-		RSAPrivateCrtKey rsa_prv_key_crt = 
+                ISOException.throwIt(SW_KEY_TYPE_UNSUPPORTED);
+/*                RSAPrivateCrtKey rsa_prv_key_crt = 
 			(RSAPrivateCrtKey)getKey(key_nb, key_type, key_size);
 		if (avail < 2)
 		    ISOException.throwIt(SW_INVALID_PARAMETER);
@@ -1534,6 +1596,7 @@ public class CardEdge extends Applet
 		offset += size;
 		avail -= size;
 		break;
+*/
 	    }
 
 	    case KEY_RSA_PKCS8_PAIR:
@@ -1664,52 +1727,56 @@ public class CardEdge extends Applet
 
     private void ImportKey(APDU apdu, byte buffer[])
     {
- 	short bytesLeft = Util.makeShort(ZEROB, buffer[ISO7816.OFFSET_LC]);
- 	
- 	byte key_nb = buffer[ISO7816.OFFSET_P1];
- 	byte mate_nb = buffer[ISO7816.OFFSET_P2];
- 	short obj_class = Util.getShort(buffer, ISO7816.OFFSET_CDATA);
- 	short obj_id = Util.getShort(buffer, (short)(ISO7816.OFFSET_CDATA+2));
-         byte keybuf[];
-         short keybuf_size;
-         short base;
- 	
- 	if (key_nb < 0 || key_nb >= MAX_NUM_KEYS)
- 	    ISOException.throwIt(SW_INCORRECT_P1);
- 	
- 	if (keys[key_nb] != null && keys[key_nb].isInitialized() && 
- 	    !authorizeKeyWrite(key_nb))
- 	    ISOException.throwIt(SW_UNAUTHORIZED);
- 
- 	if( obj_class == (short)0xffff && 
- 		(obj_id == (short)0xffff || obj_id == (short)0xfffe ) ) {
+//      Since we shouldn't be sending over private keys in the clear putting this as unsupported.
+//      Leaving code in case usefule for development and testing.
+//
+//
+// 	short bytesLeft = Util.makeShort(ZEROB, buffer[ISO7816.OFFSET_LC]);
+//
+// 	byte key_nb = buffer[ISO7816.OFFSET_P1];
+//	byte mate_nb = buffer[ISO7816.OFFSET_P2];
+// 	short obj_class = Util.getShort(buffer, ISO7816.OFFSET_CDATA);
+// 	short obj_id = Util.getShort(buffer, (short)(ISO7816.OFFSET_CDATA+2));
+//         byte keybuf[];
+//         short keybuf_size;
+//         short base;
+//
+// 	if (key_nb < 0 || key_nb >= MAX_NUM_KEYS)
+// 	    ISOException.throwIt(SW_INCORRECT_P1);
+//
+// 	if (keys[key_nb] != null && keys[key_nb].isInitialized() &&
+// 	    !authorizeKeyWrite(key_nb))
+// 	    ISOException.throwIt(SW_UNAUTHORIZED);
+//
+// 	if( obj_class == (short)0xffff &&
+// 		(obj_id == (short)0xffff || obj_id == (short)0xfffe ) ) {
  	    // I/O Object
- 	    base = ZEROS;
- 	    keybuf = iobuf;
- 	    keybuf_size = iobuf_size;
- 	} else {
- 	    base = om.getBaseAddress(obj_class, obj_id);
- 	    keybuf = mem.getBuffer();
- 	    if (base == -1)
- 		ISOException.throwIt(SW_OBJECT_NOT_FOUND);
- 	    if (!om.authorizeReadFromAddress(base, authenticated_id))
- 		ISOException.throwIt(SW_UNAUTHORIZED);
- 
- 	    keybuf_size = om.getSizeFromAddress(base);
- 	}
- 
- 	if (keybuf_size < 4)
- 	    ISOException.throwIt(SW_INVALID_PARAMETER);
- 	
- 	if (keybuf[base] != 0)
- 	    ISOException.throwIt(SW_UNSUPPORTED_FEATURE);
- 
- 	byte key_type = keybuf[(short)(base+KEYBLOB_OFFSET_KEY_TYPE)];
- 
- 	if (key_type == KEY_RSA_PKCS8_PAIR) {
- 	    if (keys[mate_nb] != null && keys[mate_nb].isInitialized() && 
- 	    				!authorizeKeyWrite(mate_nb))
- 	        ISOException.throwIt(SW_UNAUTHORIZED);
+// 	    base = ZEROS;
+// 	    keybuf = iobuf;
+// 	    keybuf_size = iobuf_size;
+// 	} else {
+// 	    base = om.getBaseAddress(obj_class, obj_id);
+// 	    keybuf = mem.getBuffer();
+// 	    if (base == -1)
+// 		ISOException.throwIt(SW_OBJECT_NOT_FOUND);
+// 	    if (!om.authorizeReadFromAddress(base, authenticated_id))
+// 		ISOException.throwIt(SW_UNAUTHORIZED);
+//
+// 	    keybuf_size = om.getSizeFromAddress(base);
+// 	}
+//
+// 	if (keybuf_size < 4)
+// 	    ISOException.throwIt(SW_INVALID_PARAMETER);
+//
+// 	if (keybuf[base] != 0)
+// 	    ISOException.throwIt(SW_UNSUPPORTED_FEATURE);
+//
+// 	byte key_type = keybuf[(short)(base+KEYBLOB_OFFSET_KEY_TYPE)];
+//
+// 	if (key_type == KEY_RSA_PKCS8_PAIR) {
+// 	    if (keys[mate_nb] != null && keys[mate_nb].isInitialized() &&
+// 	    				!authorizeKeyWrite(mate_nb))
+// 	        ISOException.throwIt(SW_UNAUTHORIZED);
  	    //
  	    // once we've paired up keys, make sure those keys are always
  	    // mated keys. This may be restrictive, but we already require
@@ -1717,28 +1784,28 @@ public class CardEdge extends Applet
  	    // key type, even if we overwrite it, so also requiring mated
  	    // keys to remain consistant is  a reasonable restriction.
  	    //
- 	    if ( ((keyMate[mate_nb] != -1) 
- 				&& (keyMate[mate_nb] != key_nb))
- 	       || ((keyMate[key_nb] != -1) 
- 				&& (keyMate[key_nb] != mate_nb)) ) {
- 		ISOException.throwIt(SW_INCONSTANT_KEYPAIRING);
- 	    }
- 
- 	    keyMate[mate_nb] = key_nb;
- 	    keyMate[key_nb] = mate_nb;
-   	}
- 	importKeyBlob(key_nb, mate_nb, keybuf, base, keybuf_size);
- 
+// 	    if ( ((keyMate[mate_nb] != -1)
+// 				&& (keyMate[mate_nb] != key_nb))
+// 	       || ((keyMate[key_nb] != -1)
+// 				&& (keyMate[key_nb] != mate_nb)) ) {
+// 		ISOException.throwIt(SW_INCONSTANT_KEYPAIRING);
+// 	    }
+//
+// 	    keyMate[mate_nb] = key_nb;
+// 	    keyMate[key_nb] = mate_nb;
+//   	}
+// 	importKeyBlob(key_nb, mate_nb, keybuf, base, keybuf_size);
+//
  	// set the ACL value
- 	Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA+4), keyACLs, 
- 		      (short)(key_nb * KEY_ACL_SIZE), (short)KEY_ACL_SIZE);
- 	if (key_type == KEY_RSA_PKCS8_PAIR) {
+// 	Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA+4), keyACLs,
+// 		      (short)(key_nb * KEY_ACL_SIZE), (short)KEY_ACL_SIZE);
+// 	if (key_type == KEY_RSA_PKCS8_PAIR) {
  	    // set ACL value on public key
- 	    Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA+4+KEY_ACL_SIZE),
- 	      keyACLs, (short)(mate_nb * KEY_ACL_SIZE), (short)KEY_ACL_SIZE);
-         }
- 
- 	Util.arrayFillNonAtomic(keybuf, base, keybuf_size, ZEROB);
+// 	    Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA+4+KEY_ACL_SIZE),
+// 	      keyACLs, (short)(mate_nb * KEY_ACL_SIZE), (short)KEY_ACL_SIZE);
+//         }
+//
+// 	Util.arrayFillNonAtomic(keybuf, base, keybuf_size, ZEROB);
     }
 
 
@@ -2560,7 +2627,7 @@ public class CardEdge extends Applet
 	
 	if (kp.getPublic() != pub_key || kp.getPrivate() != prv_key)
 	    ISOException.throwIt(SW_INTERNAL_ERROR);
-	
+
 	kp.genKeyPair();
     }
 
@@ -2610,7 +2677,7 @@ public class CardEdge extends Applet
 	//	Byte[]  IV_Data
 	//
 	//	WrappedKey:
-	//		Byte    Key Type - DES3 ()
+	//		Byte    Key Type - DES3 (), or 0x88 for AES
 	//		Byte    Key Size - key size in bytes
 	//		Byte[]  Key Data - encrypted and padded to the correct 3DES block boundary
 	//		Byte    Key Check Size
@@ -2622,12 +2689,20 @@ public class CardEdge extends Applet
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 	}
 
-	// length of DES3 key
-	short desLength = Util.makeShort(ZEROB, buffer[ISO7816.OFFSET_CDATA+
-							WRAPKEY_OFFSET_SIZE]);
+	//Kek wrapped key type
 
-	// Sigh, the token on supports DES2 keys.
-	if ( desLength != (short) 16 ) {
+        byte kekType = (byte) buffer[ISO7816.OFFSET_CDATA+ WRAPKEY_OFFSET_TYPE];
+        boolean aesKek = false;
+
+        if(kekType == (byte) 0x88) {
+            aesKek = true;
+        }
+
+	// length of DES3 or AES key
+	short keyLength = Util.makeShort(ZEROB, buffer[ISO7816.OFFSET_CDATA+
+							WRAPKEY_OFFSET_SIZE]);
+        //We support des or aes kek keys.
+	if ( aesKek != true && keyLength != (short) 16 ) {
 	    ISOException.throwIt(SW_KEY_SIZE_ERROR);
 	}
 
@@ -2635,7 +2710,7 @@ public class CardEdge extends Applet
 	// 1 byte length
 	// n-byte check value
 	short checkOffset = (short)(WRAPKEY_OFFSET_DATA+
-					(int)desLength);
+					(int)keyLength);
 	if ( available <= checkOffset ) {
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
 	}
@@ -2657,32 +2732,44 @@ public class CardEdge extends Applet
 	}
 	ivOffset += ISO7816.OFFSET_CDATA;
 	
-	
-	
-	// AC: decrypt key data and verify that its length is still 16
+	// AC: decrypt key data and verify that its length
 	SecureChannel sc = GPSystem.getSecureChannel();
-	short decryptedWrappedKeySize = sc.decryptData(buffer, (short)(ISO7816.OFFSET_CDATA + WRAPKEY_OFFSET_DATA), desLength);
-	if (decryptedWrappedKeySize != desLength){
+
+        short decryptedWrappedKeySize = 0;
+        decryptedWrappedKeySize =  sc.decryptData(buffer, (short)(ISO7816.OFFSET_CDATA + WRAPKEY_OFFSET_DATA), keyLength);
+
+	if (decryptedWrappedKeySize != keyLength){
 		ISOException.throwIt(SW_BAD_WRAPPED_KEY);
 	}
-	
+
+        short keycheck_msg_len = 8;
 	// AC: If a KCV length of 3, need to manually compute key check and compare to supplied KCV
 	if (checkLength == (short)(3)){
-		// AC: copy key data to temporary Key object for WrappedKey
-		m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+                //verify the keycheck if provided
+                if(aesKek == true) {
+                    keycheck_msg_len = AES_BLOCK_SIZE;
+                    // For aes keycheck use 1's for the data.
+                    Util.arrayFillNonAtomic(iobuf, (short)0, (short)keycheck_msg_len, (byte) 0x1);
+                    m_aesKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+                    m_aesCipher_cbc.init(m_aesKey, Cipher.MODE_ENCRYPT,default_iv, (short) 0, (short) AES_BLOCK_SIZE);
+                    m_aesCipher_cbc.doFinal(iobuf,(short)0,(short)keycheck_msg_len, iobuf,(short)keycheck_msg_len);
+
+                } else {
+                    // AC: Set first 8 bytes of IO buffer to 0s (we will run this through our cipher)
+                    Util.arrayFillNonAtomic(iobuf, (short)0, (short)keycheck_msg_len, ZEROB);
+		    // AC: copy key data to temporary Key object for WrappedKey
+		    m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
 		
-		// AC: Set first 8 bytes of IO buffer to 0s (we will run this through our cipher)
-		Util.arrayFillNonAtomic(iobuf, (short)0, (short)8, ZEROB);
+		    // AC: Initialize WrappedKey for encryption
+		    m_desCipher_ecb.init(m_2key3desKey, Cipher.MODE_ENCRYPT);
 		
-		// AC: Initialize WrappedKey for encryption
-		m_desCipher_ecb.init(m_2key3desKey, Cipher.MODE_ENCRYPT);
-		
-		// AC: Compute key check value by encrypting 8 bytes of 0s with the DES key
-		m_desCipher_ecb.doFinal(iobuf,(short)0, (short)8, iobuf, (short)8);
+		    // AC: Compute key check value by encrypting 8 bytes of 0s with the DES key
+		    m_desCipher_ecb.doFinal(iobuf,(short)0, (short)keycheck_msg_len, iobuf, (short)keycheck_msg_len);
+                }
 				
 		// AC: Verify KCV is the same as the computed value
-		if (Util.arrayCompare(iobuf, (short)8, buffer, (short)(ISO7816.OFFSET_CDATA+checkOffset+1), (short)3) != 0){
-			ISOException.throwIt(SW_BAD_WRAPPED_KEY);
+		if (Util.arrayCompare(iobuf, (short)keycheck_msg_len, buffer, (short)(ISO7816.OFFSET_CDATA+checkOffset+1), (short)3) != 0){
+                    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
 		}
 	// AC: Can't support anything but a KCV length of 3 or 0
 	}else if(checkLength != (short)(0)){
@@ -2699,8 +2786,7 @@ public class CardEdge extends Applet
 	//    ISOException.throwIt(SW_BAD_WRAPPED_KEY);
 	//}
 	
-	
-	
+        keybuf_size = 0;
 	if( obj_class == (short)0xffff && 
 		(obj_id == (short)0xffff || obj_id == (short)0xfffe ) ) {
 	    // I/O Object
@@ -2720,29 +2806,45 @@ public class CardEdge extends Applet
 	    	ISOException.throwIt(SW_UNAUTHORIZED);
 
 	    keybuf_size = om.getSizeFromAddress(base);
+
 	}
 
         // name the key type (it's not encrypted, so we can grab it early */
 	byte key_type = keybuf[(short)(base+KEYBLOB_OFFSET_KEY_TYPE)];
 
-	// get the des key to decrypt the private key
+	// get the sym key (des or aes) to decrypt the private key
         if (keybuf[base] == 0x01) { // BLOB_ENC_ENCRYPTED
         	// AC: Bugfix: Don't create temporary key object (memory leak); instead use class member
-        	//DESKey des3 = (DESKey) KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
-        	//des3.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
-        	m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+
+		if(aesKek == true) {
+                    //For AES we only suport AES_KEY_WRAP_PAD_KWP.
+                    m_aesKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
+
+                    // Decrypt the private key with AES_KEY_WRAP_KWP
+		    // Pre init the cipher object so we don't have to do it every time we decrypt a block
+                    m_aesCipher_ecb.init(m_aesKey,Cipher.MODE_DECRYPT);
+                    short result = AESKeyWrap_DecryptKWP(m_aesCipher_ecb, keybuf,(short)(base+KEYBLOB_OFFSET_KEY_DATA),
+                                    (short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA),
+                                    keybuf,(short)(base+KEYBLOB_OFFSET_KEY_DATA), (short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA), /*inEquOut*/ true);
+                    // Any issues throw exception
+                    if(result == 0) {
+		        ISOException.throwIt(SW_BAD_WRAPPED_PRIV_KEY);
+		    }
+                } else {
+                    m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
         	
-        	// AC: Bugfix: We always initialize our cipher object in the constructor to ensure we don't run out of memory at runtime
-        	// if (des == null) {
-        	// 	des = Cipher.getInstance(Cipher.ALG_DES_CBC_NOPAD, false);
-        	// }
-        	
-        	// AC: Renamed member cipher object and using renamed 3des key object.
-        	// decrypt the private key
-        	m_desCipher_cbc.init(m_2key3desKey, Cipher.MODE_DECRYPT, buffer, (short)(ivOffset+1), ivLength);
-        	m_desCipher_cbc.doFinal(keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA),
-        				(short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA),
-        				keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA));
+                    // AC: Bugfix: We always initialize our cipher object in the constructor to ensure we don't run out of memory at runtime
+                    // if (des == null) {
+                    // 	des = Cipher.getInstance(Cipher.ALG_DES_CBC_NOPAD, false);
+                    // }
+
+                    // AC: Renamed member cipher object and using renamed 3des key object.
+                    // decrypt the private key
+                    m_desCipher_cbc.init(m_2key3desKey, Cipher.MODE_DECRYPT, buffer, (short)(ivOffset+1), ivLength);
+                    m_desCipher_cbc.doFinal(keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA),
+                                        (short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA),
+                                        keybuf, (short)(base+KEYBLOB_OFFSET_KEY_DATA));
+		}
         } else if (iobuf[0] != 0x00) {
 	    ISOException.throwIt(SW_INVALID_PARAMETER);
         }
@@ -2804,11 +2906,12 @@ public class CardEdge extends Applet
     }
 
     private void readIOBuf(APDU apdu, byte buffer[]) {
-// 
+//      Leave unsafe code for development and testing if needed, but comment out.
+//
 // 	byte p1 = buffer[ISO7816.OFFSET_P1];
 // 	byte p2 = buffer[ISO7816.OFFSET_P2];
 // 	byte lc = buffer[ISO7816.OFFSET_LC];
-// 
+//
 // 	if( p2  != ZEROB )
 // 	    ISOException.throwIt(SW_INCORRECT_P2);
 // 
@@ -2817,14 +2920,14 @@ public class CardEdge extends Applet
 // 
 // 	short offset = Util.getShort(buffer, ISO7816.OFFSET_CDATA);
 // 	short len = (short) (p1 & 0xff);
-// 
+//
 // 	if( offset < (short)0 || len > iobuf_size || offset > iobuf_size ||
 // 		(short)(len+offset) > iobuf_size )
 // 	    ISOException.throwIt(SW_INVALID_PARAMETER);
 // 
 // 	Util.arrayCopyNonAtomic(iobuf, offset, buffer, ZEROS, len);
-// 	apdu.setOutgoingAndSend(ZEROS, len);
-	ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+//	apdu.setOutgoingAndSend(ZEROS, len);
+        ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
     }
 
     private void getLifeCycle(APDU apdu, byte[] buffer) {
@@ -3062,7 +3165,11 @@ public class CardEdge extends Applet
 	{
 	    if (0 == (authenticated_id & create_key_ACL))
 		ISOException.throwIt(SW_UNAUTHORIZED);
+	    try {
 	    keys[key_nb] = KeyBuilder.buildKey(jc_key_type, key_size, false);
+	    } catch(CryptoException e) {
+		    ISOException.throwIt(SW_UNAUTHORIZED) ;
+	    }
 	} else {
 
             //Now that we can clear key data from orphan key slots
@@ -3158,6 +3265,7 @@ public class CardEdge extends Applet
 	LogoutAll();
 	
 	// AC: Reset security of GP sessions
+
 	GPSystem.getSecureChannel().resetSecurity();
 	
 	// This flag is CLEAR_ON_RESET, so it will be set to false when
@@ -3200,6 +3308,8 @@ public class CardEdge extends Applet
 		     JCSystem.CLEAR_ON_RESET);
 	cardResetProcessed = JCSystem.makeTransientBooleanArray((short)1,
 		    JCSystem.CLEAR_ON_RESET);
+        kwp_iv =  JCSystem.makeTransientByteArray(AES_KEY_WRAP_BLOCK_SIZE,JCSystem.CLEAR_ON_RESET);
+
 	transientInit = true;
     }
 
@@ -3311,6 +3421,8 @@ public class CardEdge extends Applet
 //      case INS_GET_CHALLENGE:
 //      case INS_CAC_EXT_AUTH:
 //      case INS_UNBLOCK_PIN:
+//
+
 	default:
 	    ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
 	    break;
@@ -3446,6 +3558,229 @@ public class CardEdge extends Applet
     // AC: Per GP API spec, need to call resetSecurity() in deselect().
     public void deselect(){
 	GPSystem.getSecureChannel().resetSecurity();
+    }
+
+    // Add some AES unwrap KWP stuff
+
+    public short BLOCK_PAD_POWER2(short x,short bs) {
+        short p1 = (short) ( bs -  (x & (bs -1)));
+        short p2 = (short) (bs -1);
+
+        short result = (short) (p1 & p2);
+
+        return result;
+    }
+
+    //Assume pre-inited aes Cipher
+    public  short AESKeyWrap_DecryptKWP(Cipher aesECB, byte[] output,short outOffset,
+                short maxOutputLen,
+                byte[] input,short inOffset, short inputLen, boolean inEqOut) {
+        short paddedLen =(short) ( inputLen - AES_KEY_WRAP_BLOCK_SIZE);
+        short result = 0;
+	//Set to global transient quantify
+        byte[] iv = kwp_iv;
+
+        //Check args:
+
+	if (aesECB == null || input == null || output == null) {
+            return 0;
+        }
+
+        if (inputLen == AES_BLOCK_SIZE) {
+            //result =   AES_Decrypt_ECB(aesECB,input,(short)inOffset, inputLen ,iv,(short) 0, (short) inputLen);
+             try {
+                result =  aesECB.doFinal(input,(short) inOffset,inputLen, iv,(short) inputLen);
+            } catch(CryptoException e) {
+                return 0;
+            }
+
+	    result -= AES_KEY_WRAP_BLOCK_SIZE;
+        } else {
+            if (maxOutputLen < paddedLen) {
+               return 0;
+            }
+
+            try {
+                result =  AESKeyWrap_Winv(aesECB, null,
+                    iv,output,outOffset,
+                    maxOutputLen,
+                    input,inOffset,inputLen,inEqOut);
+            } finally {
+                //Clear off iobuf in case used for data
+                Util.arrayFillNonAtomic(iobuf, ZEROS, (short) 255, ZEROB);
+            }
+
+            if(result > 0 ) {
+                byte badIV = Util.arrayCompare(iv,(short) 0,AES_MAGIC_IV,(short) 0,AES_MAGIC_IV_LEN);
+                if(badIV != 0) {
+                    return 0;
+                }
+
+                short outLen = (short)(((iv[6] & 0xFF) << 8) | (iv[7] & 0xFF));
+                if(outLen < 0) {
+                    return  0;
+                }
+
+                boolean good = (outLen <= paddedLen);
+
+                if(good == false) {
+                    return 0;
+                }
+                short padlen = (short) ( paddedLen - outLen);
+                short padlen2 = BLOCK_PAD_POWER2(outLen, AES_KEY_WRAP_BLOCK_SIZE);
+
+                // see if we have a padding violation.
+                for(short i = 0 ; i < AES_KEY_WRAP_BLOCK_SIZE ; i++) {
+                     byte val = output[(short)(paddedLen - i - 1)];
+
+                     if(padlen > i && val != 0) {
+                         good = false;
+                         result = 0;
+                         break;
+                     }
+                }
+            }
+        }
+
+        return result;
+    }
+    //Do inverse KWP wrap. boolean inEqOut means input and output are same
+    //so no copy needed.
+    public short AESKeyWrap_Winv(Cipher aesECB,
+                byte[] iv,
+                byte[] ivout, byte[] output,short outputOffset,
+                short maxOutputLen,
+                byte[] input,short inOffset ,short inputLen,boolean inEqOut) {
+
+        short outLen = 0;
+        short nBlocks = 0;
+	//Point to global values to avoid memory allocations
+        short tVal = 0;
+
+	//Use ram memory from the iobuf to hold the actual data for these Unsigned64 vars.
+
+	short base = (short) 16;
+
+	kwp_t.setData(iobuf,base);
+	base += 16;
+
+	kwp_B0.setData(iobuf,base);
+	base += 16;
+
+        kwp_B1.setData(iobuf,base);
+	base += 16;
+
+	kwp_R.setData(iobuf,base);
+	base += 16;
+
+	kwp_iv64.setData(iobuf,base);
+
+	//Point decrypt buffer of 16 to start of iobuf to use transient memory
+        byte[] BBuff = iobuf;
+	Util.arrayFillNonAtomic(BBuff, ZEROS, AES_BLOCK_SIZE, ZEROB);
+
+        if(kwp_iv != null && kwp_iv.length == AES_KEY_WRAP_BLOCK_SIZE) {
+            kwp_iv64.setFromBytes(iv, (short) 0);
+        }
+
+        /* Check args, one by one for clarity */
+        if(aesECB == null || output == null || input == null) {
+            return 0;
+        }
+
+        if(inputLen < 3 * AES_KEY_WRAP_BLOCK_SIZE ||
+            0 != inputLen % AES_KEY_WRAP_BLOCK_SIZE) {
+
+            return 0;
+        }
+        outLen = (short) (inputLen - AES_KEY_WRAP_BLOCK_SIZE);
+
+        if(maxOutputLen < outLen) {
+            return 0;
+        }
+
+	if(inputLen > (short)(output.length - outputOffset)) {
+            return 0;
+	}
+
+        // Copy input to output if they are not the same
+
+	if(inEqOut == false) {
+            Util.arrayCopyNonAtomic(input,inOffset,output,outputOffset,inputLen);
+	}
+
+        nBlocks = (short) (inputLen / AES_KEY_WRAP_BLOCK_SIZE);
+
+        //decrment nBlocks to account for the one 8 byte iv
+        nBlocks--;
+
+        tVal = (short) (6 * nBlocks);
+        kwp_t.setFromShort(tVal);
+
+        //Set B0 to the same contents of R
+        kwp_R.setFromBytes(output,(short) outputOffset);
+        kwp_B0.setFromBytes(output,(short) outputOffset);
+
+        short b1Offset = 0;
+	boolean decremented = false;
+        for (short j = 0; j < 6; ++j) {
+            b1Offset = (short) ( outputOffset + inputLen);
+            for (short i = nBlocks; i > 0 ; --i) {
+                kwp_B0.XOR(kwp_t);
+                decremented = kwp_t.decrement();
+		if(!decremented)
+		    return 0;
+
+                //Update R to the next block of 8 bytes from input
+                b1Offset -= AES_KEY_WRAP_BLOCK_SIZE;
+
+                kwp_R.setFromBytes(output, b1Offset);
+                kwp_B1.setFrom(kwp_R);
+                kwp_B0.getBytes(BBuff, (short) 0);
+                kwp_B1.getBytes(BBuff, (short)  AES_KEY_WRAP_BLOCK_SIZE);
+
+                // Decrypt with ECB
+                short len = 0;
+                try {
+                    len =  aesECB.doFinal(BBuff,(short) 0,AES_BLOCK_SIZE, BBuff,(short) 0);
+                } catch(CryptoException e) {
+                    len = 0;
+                }
+                if(len <= 0 || len != (short) 16) {
+                    //bomb out
+                    return 0;
+                }
+
+                //Now reset both B's with the decrypted data.
+                kwp_B0.setFromBytes(BBuff, (short) 0);
+                kwp_B1.setFromBytes(BBuff, (short) AES_KEY_WRAP_BLOCK_SIZE);
+                kwp_R.setFrom(kwp_B1);
+
+                // Now output B1 to the output bytes..
+
+                kwp_R.getBytes(output,b1Offset);
+            }
+        }
+
+        boolean bad = false;
+
+        if(ivout != null && ivout.length == AES_KEY_WRAP_BLOCK_SIZE) {
+            kwp_B0.getBytes(ivout, (short) 0);
+        } else { // check any provided iv
+            bad = true;
+            if(kwp_iv64 != null && kwp_B0.isEqualTo(kwp_iv64)) {
+                bad = false;
+            }
+        }
+
+        if(bad == true) {
+            return 0;
+        } else {
+            //Copy over the first 8 bytes of the output which are not relevant.
+            Util.arrayCopyNonAtomic(output,(short)(8 + outputOffset),output,outputOffset,(short) (inputLen - AES_KEY_WRAP_BLOCK_SIZE));
+            outLen -= AES_KEY_WRAP_BLOCK_SIZE;
+            return outLen;
+        }
     }
 }
 
