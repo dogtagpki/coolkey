@@ -143,7 +143,7 @@ BUILD_CLASSPATH="${JC_HOME}/lib/api.jar:${GP_HOME}"
 # build rule
 $(JAVA_CLASS_FILES): $(JAVA_SRC_FILES)
 	mkdir -p $(CONVERTER_OUTPUT_DIR)
-	perl ./update_buildid.pl $(JAVA_SRC_FILES)
+	#perl ./update_buildid.pl $(JAVA_SRC_FILES)
 	$(JAVAC) $(JAVAC_FLAGS) -classpath ${BUILD_CLASSPATH} -d $(OUTPUT_DIR) $(JAVA_SRC_FILES)
 
 #############################################################################
