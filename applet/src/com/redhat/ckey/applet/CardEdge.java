@@ -124,8 +124,8 @@ public class CardEdge extends Applet
     private static final byte VERSION_PROTOCOL_MINOR = 1;
     private static final byte VERSION_APPLET_MAJOR = 1;
     private static final byte VERSION_APPLET_MINOR = 5;
-    private static final short BUILDID_MAJOR = (short) 0x6426;
-    private static final short BUILDID_MINOR = (short) 0x0792;
+    private static final short BUILDID_MAJOR = (short) 0x65cb;
+    private static final short BUILDID_MINOR = (short) 0xf5a6;
     private static final short ZEROS = 0;
 
     // * Enable pin size check
@@ -490,6 +490,7 @@ public class CardEdge extends Applet
     private Cipher m_desCipher_ecb;     // new cipher object for ECB
     private Cipher m_aesCipher_ecb;
     private Cipher m_aesCipher_cbc;
+    private Cipher m_aesCipher_cbc_nopad;
 
     /**
      * Instance variable objects and array declarations - PERSISTENT
@@ -591,6 +592,7 @@ public class CardEdge extends Applet
         m_desCipher_ecb = Cipher.getInstance(Cipher.ALG_DES_ECB_NOPAD, false);
         m_aesCipher_cbc = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_CBC_NOPAD,false);
         m_aesCipher_ecb = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_ECB_NOPAD ,false);
+        m_aesCipher_cbc_nopad = Cipher.getInstance(Cipher.CIPHER_AES_CBC, Cipher.PAD_NOPAD,false);
 
         byte appDataLen = 0;
         byte issuerLen = 0;
@@ -2644,6 +2646,7 @@ public class CardEdge extends Applet
         byte keybuf[];
         short keybuf_size;
         short base;
+	short cbc_decrypt_size;
 	
 
 	if (owner == 0xf) {
@@ -2677,7 +2680,7 @@ public class CardEdge extends Applet
 	//	Byte[]  IV_Data
 	//
 	//	WrappedKey:
-	//		Byte    Key Type - DES3 (), or 0x88 for AES
+	//		Byte    Key Type - DES3 (), or 0x88 for AES / KWP or 0x89 for AES / CBC
 	//		Byte    Key Size - key size in bytes
 	//		Byte[]  Key Data - encrypted and padded to the correct 3DES block boundary
 	//		Byte    Key Check Size
@@ -2694,7 +2697,7 @@ public class CardEdge extends Applet
         byte kekType = (byte) buffer[ISO7816.OFFSET_CDATA+ WRAPKEY_OFFSET_TYPE];
         boolean aesKek = false;
 
-        if(kekType == (byte) 0x88) {
+        if(kekType == (byte) 0x88 || kekType == (byte) 0x89) { // 88 KWP, 89 CBC if chosen by server
             aesKek = true;
         }
 
@@ -2727,7 +2730,7 @@ public class CardEdge extends Applet
         if ( available < (short)(ivOffset+1+ivLength) ) {
             ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
         }
-	if ( ivLength != 8) {
+	if ( ivLength != 8 && ivLength != 16) { //Allow 16 for AES_CBC_PAD
 	    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH); // wrong error code
 	}
 	ivOffset += ISO7816.OFFSET_CDATA;
@@ -2816,20 +2819,36 @@ public class CardEdge extends Applet
         if (keybuf[base] == 0x01) { // BLOB_ENC_ENCRYPTED
         	// AC: Bugfix: Don't create temporary key object (memory leak); instead use class member
 
+		short result = 0;
 		if(aesKek == true) {
-                    //For AES we only suport AES_KEY_WRAP_PAD_KWP.
+                    //For AES we only suport AES_KEY_WRAP_PAD_KWP or AES_CBC
                     m_aesKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
 
-                    // Decrypt the private key with AES_KEY_WRAP_KWP
-		    // Pre init the cipher object so we don't have to do it every time we decrypt a block
-                    m_aesCipher_ecb.init(m_aesKey,Cipher.MODE_DECRYPT);
-                    short result = AESKeyWrap_DecryptKWP(m_aesCipher_ecb, keybuf,(short)(base+KEYBLOB_OFFSET_KEY_DATA),
+		    if(kekType == (byte) 0x88) { // KWP
+                        // Decrypt the private key with AES_KEY_WRAP_KWP
+		        // Pre init the cipher object so we don't have to do it every time we decrypt a block
+                        m_aesCipher_ecb.init(m_aesKey,Cipher.MODE_DECRYPT);
+                        result = AESKeyWrap_DecryptKWP(m_aesCipher_ecb, keybuf,(short)(base+KEYBLOB_OFFSET_KEY_DATA),
                                     (short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA),
                                     keybuf,(short)(base+KEYBLOB_OFFSET_KEY_DATA), (short)(keybuf_size-KEYBLOB_OFFSET_KEY_DATA), /*inEquOut*/ true);
-                    // Any issues throw exception
-                    if(result == 0) {
-		        ISOException.throwIt(SW_BAD_WRAPPED_PRIV_KEY);
-		    }
+                        // Any issues throw exception
+                        if(result == 0) {
+                            ISOException.throwIt(SW_BAD_WRAPPED_PRIV_KEY);
+                        }
+		    } else { // CBC, 0x89
+                        try {
+                            m_aesCipher_cbc_nopad.init(m_aesKey, Cipher.MODE_DECRYPT,default_iv, (short) 0, (short) AES_BLOCK_SIZE);
+                            cbc_decrypt_size = m_aesCipher_cbc_nopad.doFinal(keybuf,(short) (base+KEYBLOB_OFFSET_KEY_DATA),
+			            (short) (keybuf_size-KEYBLOB_OFFSET_KEY_DATA), keybuf,(short)(base+KEYBLOB_OFFSET_KEY_DATA));
+
+			    // Find out how long the pkcs7 padding is
+			    short padLen = getPKCS7PadLength(keybuf, (short) (base+KEYBLOB_OFFSET_KEY_DATA),
+                                (short) 16, (short) cbc_decrypt_size);
+			    keybuf_size -= padLen;
+			} catch (CryptoException e) {
+                            ISOException.throwIt(e.getReason());
+                        }
+	            }
                 } else {
                     m_2key3desKey.setKey(buffer,(short)(ISO7816.OFFSET_CDATA+WRAPKEY_OFFSET_DATA));
         	
@@ -3644,6 +3663,56 @@ public class CardEdge extends Applet
 
         return result;
     }
+
+    // Find out how long the pkcs5/7 padding is.
+    // Assume we have a buffer with pkcs5/7 padding.
+ 
+    public static short getPKCS7PadLength(byte[] buf, short offset,
+               short blockSize, short keybuf_length) {
+
+        short padLength = 0;
+
+        if(blockSize < (short) 1 || blockSize > (short) 255) {
+            return padLength;
+        }
+
+        if(buf == null || keybuf_length <= blockSize || offset < 0) {
+            return padLength;
+        }
+
+        short bufLen = (short) buf.length;
+
+        if((short) (offset + keybuf_length) > bufLen) {
+            return padLength;
+        }
+
+        short end = (short) ( offset +  keybuf_length);
+
+        if(end > bufLen) {
+            return padLength;
+        }
+
+        byte last = (byte) buf[(short) (end -1)];
+
+        //Check to see if the last byte could be our padding byte.
+        if(last == (byte) 0 || last >= (byte) blockSize) {
+            return padLength;
+        }
+
+        short firstInd = (short) (end - (short)last);
+
+        byte cur = 0;
+        for(short i = 0 ; i < (short) last; i ++) {
+            cur = (byte) buf[(short) (firstInd + i)];
+            if(cur != last) {
+                return padLength;
+            }
+        }
+        padLength = (short) last;
+
+        return padLength;
+    }
+ 
     //Do inverse KWP wrap. boolean inEqOut means input and output are same
     //so no copy needed.
     public short AESKeyWrap_Winv(Cipher aesECB,
